@@ -247,6 +247,17 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Emoji reactions — broadcast to the whole room (including the sender so
+  // they see their own reaction float up too).
+  socket.on('reaction', ({ roomId, emoji }) => {
+    if (!emoji || typeof emoji !== 'string') return;
+    io.to(roomId).emit('reaction', {
+      socketId: socket.id,
+      userName: socket.data.userName || '',
+      emoji: emoji.slice(0, 8)
+    });
+  });
+
   // Host-only: ask a participant to mute their microphone
   socket.on('mute-participant', ({ roomId, targetSocketId }) => {
     if (!socket.data.isHost) return;

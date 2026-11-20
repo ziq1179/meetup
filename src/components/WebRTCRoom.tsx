@@ -28,6 +28,16 @@ function getInitials(name: string): string {
   return initials || '?'
 }
 
+// Quick-reaction palette shown above the call controls
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '😮', '😢', '🔥']
+
+interface FloatingReaction {
+  id: string
+  emoji: string
+  userName: string
+  left: number // percentage across the stage
+}
+
 export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }: WebRTCRoomProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const socketRef = useRef<Socket | null>(null)
@@ -49,6 +59,11 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   // Host (room admin) is the first participant; they can mute others.
   const [hostSocketId, setHostSocketId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Emoji reactions: palette visibility + the reactions currently floating up
+  const [showReactions, setShowReactions] = useState(false)
+  const [reactions, setReactions] = useState<FloatingReaction[]>([])
+  const reactionTimersRef = useRef<number[]>([])
+  const reactionPaletteTimerRef = useRef<number | null>(null)
   const remoteVideoContainerRef = useRef<HTMLDivElement>(null)
   const inviteDropdownRef = useRef<HTMLDivElement>(null)
   const userIdRef = useRef<string>('')
@@ -351,6 +366,19 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       window.setTimeout(() => setNotice(null), 4000)
     })
 
+    // Emoji reactions from anyone in the room (our own included)
+    socket.on('reaction', ({ emoji, userName: reactorName }: { emoji: string; userName?: string }) => {
+      if (!emoji) return
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const left = 12 + Math.random() * 76
+      setReactions(prev => [...prev.slice(-14), { id, emoji, userName: reactorName || 'Someone', left }])
+      // Matches the 3s float animation in tailwind.config.js
+      const timer = window.setTimeout(() => {
+        setReactions(prev => prev.filter(r => r.id !== id))
+      }, 3100)
+      reactionTimersRef.current.push(timer)
+    })
+
     socket.on('reconnect_failed', () => {
       console.error('❌ Failed to reconnect to signaling server')
       setError('Connection lost. Please refresh the page.')
@@ -362,6 +390,12 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     })
 
     return () => {
+      reactionTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+      reactionTimersRef.current = []
+      if (reactionPaletteTimerRef.current) {
+        window.clearTimeout(reactionPaletteTimerRef.current)
+        reactionPaletteTimerRef.current = null
+      }
       if (webrtcManagerRef.current) {
         webrtcManagerRef.current.cleanup()
       }
@@ -532,6 +566,39 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     setIsVideoMuted(newVideoMutedState)
     mediaStateRef.current.videoEnabled = !newVideoMutedState
     broadcastMediaState()
+  }
+
+  // Send an emoji reaction to everyone in the room. The palette stays open for
+  // a few seconds so people can send more than one, then closes itself.
+  const sendReaction = (emoji: string) => {
+    socketRef.current?.emit('reaction', { roomId: roomName, emoji })
+    if (reactionPaletteTimerRef.current) {
+      window.clearTimeout(reactionPaletteTimerRef.current)
+    }
+    reactionPaletteTimerRef.current = window.setTimeout(() => {
+      setShowReactions(false)
+      reactionPaletteTimerRef.current = null
+    }, 4000)
+  }
+
+  const toggleReactionPalette = () => {
+    if (showReactions) {
+      if (reactionPaletteTimerRef.current) {
+        window.clearTimeout(reactionPaletteTimerRef.current)
+        reactionPaletteTimerRef.current = null
+      }
+      setShowReactions(false)
+    } else {
+      setShowReactions(true)
+      // Close by itself if nobody picks an emoji
+      if (reactionPaletteTimerRef.current) {
+        window.clearTimeout(reactionPaletteTimerRef.current)
+      }
+      reactionPaletteTimerRef.current = window.setTimeout(() => {
+        setShowReactions(false)
+        reactionPaletteTimerRef.current = null
+      }, 8000)
+    }
   }
 
   const toggleScreenShare = async () => {
@@ -979,9 +1046,46 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         <div ref={remoteVideoContainerRef} className="contents"></div>
       </div>
 
+      {/* Floating emoji reactions — rise from above the controls and fade out */}
+      <div className="pointer-events-none absolute inset-0 z-40 overflow-hidden">
+        {reactions.map((reaction) => (
+          <div
+            key={reaction.id}
+            className="absolute bottom-[calc(6.5rem+env(safe-area-inset-bottom,0px))]"
+            style={{ left: `${reaction.left}%`, transform: 'translateX(-50%)' }}
+          >
+            <div className="flex animate-reaction-float flex-col items-center">
+              <span className="text-4xl drop-shadow-lg sm:text-5xl">{reaction.emoji}</span>
+              <span className="mt-0.5 max-w-[7rem] truncate rounded-full bg-gray-900/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                {reaction.userName}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Reaction palette */}
+      {showReactions && (
+        <div className="absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] left-1/2 z-50 w-max max-w-[calc(100vw-1rem)] -translate-x-1/2 rounded-2xl border border-primary-200 bg-white/95 px-2 py-1.5 shadow-xl backdrop-blur-md">
+          <div className="flex items-center justify-center gap-0.5">
+            {REACTION_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => sendReaction(emoji)}
+                title={`React with ${emoji}`}
+                aria-label={`React with ${emoji}`}
+                className="h-9 w-9 rounded-full text-xl leading-none transition-transform hover:scale-125 active:scale-95 sm:h-10 sm:w-10 sm:text-2xl"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="absolute bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-primary-200 shadow-lg" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-        <div className="flex items-center justify-center gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4">
+        <div className="flex flex-wrap items-center justify-center gap-2 px-2 py-3 sm:gap-4 sm:px-6 sm:py-4">
           <button
             onClick={toggleMute}
             className={`p-3 rounded-full transition-all sm:p-4 ${
@@ -1022,6 +1126,23 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             )}
+          </button>
+
+          {/* Emoji reactions */}
+          <button
+            onClick={toggleReactionPalette}
+            className={`p-3 rounded-full transition-all sm:p-4 ${
+              showReactions
+                ? 'bg-primary-600 hover:bg-primary-700 text-white ring-2 ring-primary-300'
+                : 'bg-primary-100 hover:bg-primary-200 text-primary-700'
+            }`}
+            title="Send a reaction"
+            aria-label="Send a reaction"
+            aria-expanded={showReactions}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </button>
 
           {/* Screen sharing — needs getDisplayMedia (not available on iOS) */}

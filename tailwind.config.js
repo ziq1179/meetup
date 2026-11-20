@@ -20,6 +20,17 @@ export default {
           900: '#7c2d12',
         },
       },
+      keyframes: {
+        'reaction-float': {
+          '0%': { opacity: '0', transform: 'translateY(0) scale(0.5)' },
+          '12%': { opacity: '1', transform: 'translateY(-14px) scale(1.15)' },
+          '25%': { transform: 'translateY(-34px) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(-230px) scale(0.95)' },
+        },
+      },
+      animation: {
+        'reaction-float': 'reaction-float 3s ease-out forwards',
+      },
     },
   },
   plugins: [],
