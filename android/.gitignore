@@ -1,0 +1,22 @@
+# Gradle / build caches
+.gradle/
+.kotlin/
+build/
+app/build/
+
+# Local machine config
+local.properties
+
+# Build artifacts (APKs are distributed separately)
+dist/
+*.apk
+
+# Signing keys — NEVER commit these
+*.jks
+*.keystore
+keystore.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
