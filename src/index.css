@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Allow scrolling when content overflows (setup screens, keyboards) but keep
+     inner scroll areas (video grid, chat) from chaining to the page.  */
+  overscroll-behavior-y: contain;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* While in a meeting the layout is fixed full-screen and scrolls internally,
+   so lock the document to prevent rubber-banding / pull-to-refresh. */
+body.meeting-active {
+  overflow: hidden;
+  height: 100%;
+}
+
+#root {
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+}
+
+/* Shared behavior for internally scrollable panes on touch devices */
+.scroll-container {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide all Jitsi UI elements */
+#jitsi-container iframe {
+  border: none;
+}
+
+/* Additional CSS to hide Jitsi internal UI elements */
+#jitsi-container * {
+  /* This will be injected dynamically, but we can add base styles here */
+}
+
+/* Ensure Jitsi iframe takes full space */
+#jitsi-container > div {
+  width: 100% !important;
+  height: 100% !important;
+}

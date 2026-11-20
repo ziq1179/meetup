@@ -1,0 +1,48 @@
+{
+  "name": "meetup-video-chat",
+  "version": "1.0.0",
+  "description": "Meetup - Modern video conferencing with WebRTC",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:network": "vite --host",
+    "dev:full": "concurrently \"npm run dev\" \"npm run signaling\" \"npm run mediasoup\"",
+    "signaling": "node server/signaling-server.js",
+    "start": "node server/signaling-server.js",
+    "mediasoup": "cd mediasoup-server && npm run dev",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "tunnel": "npx localtunnel --port 3000",
+    "tunnel:frontend": "npx localtunnel --port 5173",
+    "tunnel:signaling": "npx localtunnel --port 3001",
+    "tunnel:mediasoup": "npx localtunnel --port 4000",
+    "tunnel:all": "concurrently \"npm run tunnel:frontend\" \"npm run tunnel:signaling\" \"npm run tunnel:mediasoup\""
+  },
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "mediasoup-client": "^3.18.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "redis": "^4.7.1",
+    "simple-peer": "^9.11.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^9.2.1",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8"
+  }
+}

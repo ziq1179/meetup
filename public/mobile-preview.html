@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Meetup mobile preview (dev tool)</title>
+<style>
+  html,body{margin:0;min-height:100vh;background:#18181b;display:grid;place-items:center;font-family:system-ui,sans-serif}
+  .frame{width:390px;height:844px;background:#fff;border-radius:44px;border:10px solid #3f3f46;box-shadow:0 12px 44px rgba(0,0,0,.55);overflow:hidden}
+  .frame iframe{width:100%;height:100%;border:0}
+  .hint{position:fixed;top:10px;left:12px;color:#a1a1aa;font-size:13px}
+</style>
+</head>
+<body>
+  <div class="hint">Mobile preview (390×844, iPhone-ish). Point it at #local to use localhost:5173 app, or deploy URL.</div>
+  <div class="frame"><iframe id="app" src="/" allow="camera; microphone; display-capture"></iframe></div>
+  <script>
+    const f = document.getElementById('app')
+    f.addEventListener('load', () => {
+      const src = (f.getAttribute('src') || '') + ' ' + (f.src || '')
+      if (!src.includes('autojoin')) return
+      setTimeout(() => {
+        try {
+          const w = f.contentWindow, d = w.document
+          const set = (id, v) => {
+            const el = d.querySelector(id)
+            if (!el) return
+            const desc = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value')
+            desc.set.call(el, v)
+            el.dispatchEvent(new Event('input', { bubbles: true }))
+          }
+          set('#userName', 'Mobile Tester')
+          set('#roomName', 'mobile-test-' + Date.now().toString(36))
+          d.querySelector('button[type=submit]')?.click()
+        } catch (e) {
+          console.log('autofill failed', e)
+        }
+      }, 700)
+    })
+  </script>
+</body>
+</html>

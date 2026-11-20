@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.streamspace.meetup",
+    "sha256_cert_fingerprints": [
+      "57:F3:72:C3:A4:3A:41:0B:44:E8:26:48:29:F5:9A:F7:08:CB:16:D1:F3:C3:D7:D0:0A:64:41:61:3F:A5:00:67"
+    ]
+  }
+}]
