@@ -441,15 +441,6 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         nameEl.textContent = participant.userName || 'Participant'
         avatarWrap.appendChild(nameEl)
 
-        if (!isFocusMode) {
-          const caption = document.createElement('div')
-          caption.className = participantIsFocused
-            ? 'text-gray-500 text-xs sm:text-sm'
-            : 'text-gray-500 text-[10px] sm:text-xs'
-          caption.textContent = 'Camera off'
-          avatarWrap.appendChild(caption)
-        }
-
         container.appendChild(avatarWrap)
       } else {
         const videoElement = document.createElement('video')
@@ -964,11 +955,6 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
               }`}>
                 {userName}
               </div>
-              {!isFocusMode && (
-                <p className={`text-gray-500 ${focusTarget === 'local' ? 'text-xs sm:text-sm' : 'text-[10px] sm:text-xs'}`}>
-                  Camera off
-                </p>
-              )}
             </div>
           )}
           {focusTarget === 'local' ? (
