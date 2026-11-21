@@ -117,4 +117,10 @@ body.meeting-active {
     display: inline-flex !important;
     bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px)) !important;
   }
+
+  /* Leave sits at the top-left; move the host's mute control below it. */
+  .meeting-room.meeting-focus-active .meeting-focused-tile .meeting-host-mute {
+    top: calc(3rem + env(safe-area-inset-top, 0px)) !important;
+    left: calc(0.5rem + env(safe-area-inset-left, 0px)) !important;
+  }
 }

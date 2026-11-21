@@ -693,9 +693,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         muteBtn.type = 'button'
         muteBtn.title = `Mute ${participant.userName || 'participant'}`
         muteBtn.textContent = participant.audioEnabled === false ? '✓ Muted' : '🔇 Mute'
-        muteBtn.className = participantIsFocused
+        muteBtn.className = `${participantIsFocused
           ? 'absolute top-2 left-2 z-10 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium'
-          : 'absolute top-1.5 left-1.5 z-10 bg-white/90 hover:bg-white text-gray-900 text-[10px] px-2 py-1 rounded-full shadow-md font-medium'
+          : 'absolute top-1.5 left-1.5 z-10 bg-white/90 hover:bg-white text-gray-900 text-[10px] px-2 py-1 rounded-full shadow-md font-medium'} meeting-host-mute`
         muteBtn.onclick = (e) => {
           e.stopPropagation()
           socketRef.current?.emit('mute-participant', {
