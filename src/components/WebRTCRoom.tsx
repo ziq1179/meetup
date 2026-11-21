@@ -550,8 +550,12 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
 
   // The host (first participant) gets admin controls: mute any participant.
   const isHost = !!hostSocketId && hostSocketId === socketRef.current?.id
-  const raisedHandCount =
-    (isHandRaised ? 1 : 0) + Array.from(participants.values()).filter((p) => p.handRaised).length
+  const raisedByNames = [
+    ...(isHandRaised ? [userName] : []),
+    ...Array.from(participants.values())
+      .filter((p) => p.handRaised)
+      .map((p) => p.userName || 'Participant'),
+  ]
 
   const buildReport = (endedAt: number): MeetingReport => {
     const activity = [...activityRef.current]
@@ -1190,12 +1194,16 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                 📋
               </button>
             )}
-            {raisedHandCount > 0 && (
+            {raisedByNames.length > 0 && (
               <span
-                title="Hands raised"
-                className="shrink-0 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-[10px] sm:text-xs font-semibold px-2 py-0.5"
+                title={`Hand raised by ${raisedByNames.join(', ')}`}
+                className="shrink-0 max-w-[8rem] truncate rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-[10px] sm:max-w-[16rem] sm:text-xs font-semibold px-2 py-0.5"
               >
-                ✋ {raisedHandCount}
+                <span className="sm:hidden">
+                  ✋ {raisedByNames[0]}
+                  {raisedByNames.length > 1 ? ` +${raisedByNames.length - 1}` : ''}
+                </span>
+                <span className="hidden sm:inline">✋ {raisedByNames.join(', ')}</span>
               </span>
             )}
             {roomSoundMuted && (
