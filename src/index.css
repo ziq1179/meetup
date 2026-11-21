@@ -36,10 +36,11 @@ body.meeting-active {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Spotlight buttons use line-art icons; give the strokes a small, springy
-   response on hover so the control feels alive without being distracting. */
+/* Spotlight buttons use solid icons; a soft shadow keeps them legible on top
+   of video, and a small hover pop makes the control feel responsive. */
 .meeting-focus-icon {
-  transition: transform 180ms ease, opacity 180ms ease;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+  transition: transform 180ms ease;
 }
 button:hover .meeting-focus-icon {
   transform: scale(1.15);

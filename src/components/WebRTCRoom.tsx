@@ -44,11 +44,11 @@ function getInitials(name: string): string {
 // Quick-reaction palette shown above the call controls
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '😮', '😢', '🔥']
 
-// Line-art icons for the spotlight buttons. Corner brackets read as
-// "expand to full screen"; the four-tile grid reads as "show everyone again".
+// Solid icons for the spotlight buttons. Filled corner brackets read as
+// "expand to full screen"; the solid four-tile grid reads as "show everyone".
 // Kept as strings so the DOM-created remote tiles can share them with the JSX.
-const FOCUS_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/></svg>`
-const SHOW_ALL_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.5"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.5"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.5"/><rect x="14" y="14" width="6.5" height="6.5" rx="1.5"/></svg>`
+const FOCUS_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 3h7v2H5v5H3V3zm11 0h7v7h-2V5h-5V3zM3 14h2v5h5v2H3v-7zm14 0h2v7h-7v-2h5v-5z"/></svg>`
+const SHOW_ALL_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`
 
 interface FloatingReaction {
   id: string
