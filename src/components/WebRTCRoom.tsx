@@ -44,11 +44,12 @@ function getInitials(name: string): string {
 // Quick-reaction palette shown above the call controls
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '😮', '😢', '🔥']
 
-// Solid icons for the spotlight buttons. Filled corner brackets read as
-// "expand to full screen"; the solid four-tile grid reads as "show everyone".
-// Kept as strings so the DOM-created remote tiles can share them with the JSX.
-const FOCUS_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 3h7v2H5v5H3V3zm11 0h7v7h-2V5h-5V3zM3 14h2v5h5v2H3v-7zm14 0h2v7h-7v-2h5v-5z"/></svg>`
-const SHOW_ALL_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`
+// Solid fullscreen icons: two arrows pointing out (expand) and the matching
+// pair pointing in (collapse). These are the standard Material Symbols shapes,
+// so they read instantly as fullscreen / back-to-all. Kept as strings so the
+// DOM-created remote tiles can share them with the JSX buttons.
+const FOCUS_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 21q-.425 0-.712-.288T3 20v-6q0-.425.288-.712T4 13t.713.288T5 14v3.6L17.6 5H14q-.425 0-.712-.288T13 4t.288-.712T14 3h6q.425 0 .713.288T21 4v6q0 .425-.288.713T20 11t-.712-.288T19 10V6.4L6.4 19H10q.425 0 .713.288T11 20t-.288.713T10 21z"/></svg>`
+const SHOW_ALL_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m10 15.4l-5.9 5.9q-.275.275-.7.275t-.7-.275t-.275-.7t.275-.7L8.6 14H5q-.425 0-.712-.288T4 13t.288-.712T5 12h6q.425 0 .713.288T12 13v6q0 .425-.288.713T11 20t-.712-.288T10 19zm5.4-5.4H19q.425 0 .713.288T20 11t-.288.713T19 12h-6q-.425 0-.712-.288T12 11V5q0-.425.288-.712T13 4t.713.288T14 5v3.6l5.9-5.9q.275-.275.7-.275t.7.275t.275.7t-.275.7z"/></svg>`
 
 interface FloatingReaction {
   id: string
