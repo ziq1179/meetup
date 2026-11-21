@@ -38,6 +38,7 @@ interface FloatingReaction {
   emoji: string
   userName: string
   left: number // percentage across the stage
+  swirlAlt: boolean // mirrored swirl direction for variety
 }
 
 export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }: WebRTCRoomProps) {
@@ -437,7 +438,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       if (!emoji) return
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const left = 12 + Math.random() * 76
-      setReactions(prev => [...prev.slice(-14), { id, emoji, userName: reactorName || 'Someone', left }])
+      setReactions(prev => [...prev.slice(-14), { id, emoji, userName: reactorName || 'Someone', left, swirlAlt: Math.random() < 0.5 }])
       // No sound for your own reaction — the float is already the feedback
       if (socketId !== socketRef.current?.id && !soundsOff()) playReactionSound()
       // Matches the 3s float animation in tailwind.config.js
@@ -1254,7 +1255,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
             className="absolute bottom-[calc(6.5rem+env(safe-area-inset-bottom,0px))]"
             style={{ left: `${reaction.left}%`, transform: 'translateX(-50%)' }}
           >
-            <div className="flex animate-reaction-float flex-col items-center">
+            <div className={`flex flex-col items-center ${reaction.swirlAlt ? 'animate-reaction-swirl-alt' : 'animate-reaction-swirl'}`}>
               <span className="text-4xl drop-shadow-lg sm:text-5xl">{reaction.emoji}</span>
               <span className="mt-0.5 max-w-[7rem] truncate rounded-full bg-gray-900/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
                 {reaction.userName}

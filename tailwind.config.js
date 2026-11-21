@@ -21,15 +21,32 @@ export default {
         },
       },
       keyframes: {
-        'reaction-float': {
-          '0%': { opacity: '0', transform: 'translateY(0) scale(0.5)' },
-          '12%': { opacity: '1', transform: 'translateY(-14px) scale(1.15)' },
-          '25%': { transform: 'translateY(-34px) scale(1)' },
-          '100%': { opacity: '0', transform: 'translateY(-230px) scale(0.95)' },
+        // Emoji spirals side-to-side as it rises, then fades out.
+        'reaction-swirl': {
+          '0%': { opacity: '0', transform: 'translate(0, 0) scale(0.4) rotate(-35deg)' },
+          '10%': { opacity: '1', transform: 'translate(-14px, -20px) scale(1.25) rotate(22deg)' },
+          '25%': { transform: 'translate(22px, -58px) scale(1) rotate(-20deg)' },
+          '40%': { transform: 'translate(-22px, -98px) rotate(24deg)' },
+          '55%': { transform: 'translate(20px, -138px) rotate(-22deg)' },
+          '70%': { transform: 'translate(-16px, -178px) rotate(18deg)' },
+          '85%': { opacity: '0.75', transform: 'translate(11px, -212px) scale(0.95) rotate(-12deg)' },
+          '100%': { opacity: '0', transform: 'translate(-4px, -245px) scale(0.85) rotate(6deg)' },
+        },
+        // Mirrored path so consecutive reactions don't all swirl the same way.
+        'reaction-swirl-alt': {
+          '0%': { opacity: '0', transform: 'translate(0, 0) scale(0.4) rotate(35deg)' },
+          '10%': { opacity: '1', transform: 'translate(14px, -20px) scale(1.25) rotate(-22deg)' },
+          '25%': { transform: 'translate(-22px, -58px) scale(1) rotate(20deg)' },
+          '40%': { transform: 'translate(22px, -98px) rotate(-24deg)' },
+          '55%': { transform: 'translate(-20px, -138px) rotate(22deg)' },
+          '70%': { transform: 'translate(16px, -178px) rotate(-18deg)' },
+          '85%': { opacity: '0.75', transform: 'translate(-11px, -212px) scale(0.95) rotate(12deg)' },
+          '100%': { opacity: '0', transform: 'translate(4px, -245px) scale(0.85) rotate(-6deg)' },
         },
       },
       animation: {
-        'reaction-float': 'reaction-float 3s ease-out forwards',
+        'reaction-swirl': 'reaction-swirl 3s ease-out forwards',
+        'reaction-swirl-alt': 'reaction-swirl-alt 3s ease-out forwards',
       },
     },
   },
