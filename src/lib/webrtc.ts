@@ -32,6 +32,8 @@ export class WebRTCManager {
   private _userName: string = '';
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
+  private onConnectionStateChange: ((socketId: string, state: RTCPeerConnectionState, iceState: RTCIceConnectionState) => void) | null = null;
+  private iceRestarted: Set<string> = new Set();
 
   // Use configuration with STUN and TURN servers
   private readonly rtcConfiguration: RTCConfiguration = getWebRTCConfig();
@@ -42,12 +44,14 @@ export class WebRTCManager {
     userId: string,
     userName: string,
     onRemoteStream: (socketId: string, stream: MediaStream, userName?: string, userId?: string) => void,
-    onUserLeft: (socketId: string) => void
+    onUserLeft: (socketId: string) => void,
+    onConnectionStateChange?: (socketId: string, state: RTCPeerConnectionState, iceState: RTCIceConnectionState) => void
   ) {
     this.socket = socket;
     this.roomId = roomId;
     this._userId = userId; // Store for potential future use
     this._userName = userName; // Store for potential future use
+    this.onConnectionStateChange = onConnectionStateChange || null;
     this.setupSocketListeners(onRemoteStream, onUserLeft);
   }
 
@@ -167,11 +171,25 @@ export class WebRTCManager {
       }
     };
 
-    // Handle connection state changes
+    // Handle connection state changes. A brief `disconnected` is common on
+    // mobile networks, so never destroy the peer immediately — try an ICE
+    // restart once and let the UI monitor decide if the call is unrecoverable.
     peerConnection.onconnectionstatechange = () => {
-      console.log(`Connection state with ${socketId}:`, peerConnection.connectionState);
-      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
-        this.removePeerConnection(socketId);
+      const state = peerConnection.connectionState;
+      console.log(`Connection state with ${socketId}:`, state);
+      this.onConnectionStateChange?.(socketId, state, peerConnection.iceConnectionState);
+
+      if (state === 'disconnected' || state === 'failed') {
+        if (!this.iceRestarted.has(socketId) && typeof peerConnection.restartIce === 'function') {
+          this.iceRestarted.add(socketId);
+          try {
+            peerConnection.restartIce();
+          } catch (err) {
+            captureError(err, 'ice-restart');
+          }
+        }
+      } else if (state === 'connected') {
+        this.iceRestarted.delete(socketId);
       }
     };
 
@@ -322,6 +340,24 @@ export class WebRTCManager {
       this.peerConnections.delete(socketId);
     }
     this.remoteStreams.delete(socketId);
+    this.iceRestarted.delete(socketId);
+  }
+
+  // Drop stale peers after our signaling socket reconnects with a new id.
+  // The local camera/mic stream is kept so it can be reused immediately.
+  resetPeers() {
+    this.peerConnections.forEach((peerConnection) => peerConnection.close());
+    this.peerConnections.clear();
+    this.remoteStreams.clear();
+    this.iceRestarted.clear();
+  }
+
+  getPeerConnectionStates(): Map<string, RTCPeerConnectionState> {
+    const states = new Map<string, RTCPeerConnectionState>();
+    this.peerConnections.forEach((peerConnection, socketId) => {
+      states.set(socketId, peerConnection.connectionState);
+    });
+    return states;
   }
 
   cleanup() {
@@ -336,6 +372,7 @@ export class WebRTCManager {
     });
     this.peerConnections.clear();
     this.remoteStreams.clear();
+    this.iceRestarted.clear();
   }
 
   getLocalStream(): MediaStream | null {

@@ -56,8 +56,17 @@ body.meeting-active {
    screen so a shared screen is actually readable when the phone is turned.
    Only the ✕ exit button and a compact Leave control stay on top. */
 @media (orientation: landscape) and (max-height: 520px) {
-  .meeting-room.meeting-focus-active > *:not(.meeting-video-grid):not(.meeting-header) {
+  .meeting-room.meeting-focus-active > *:not(.meeting-video-grid):not(.meeting-header):not(.meeting-connection-banner):not(.meeting-landscape-mic) {
     display: none !important;
+  }
+
+  /* The slow-network warning must stay visible even in landscape spotlight. */
+  .meeting-room.meeting-focus-active .meeting-connection-banner {
+    top: calc(0.35rem + env(safe-area-inset-top, 0px)) !important;
+    max-width: 55vw !important;
+    padding: 0.3rem 0.6rem !important;
+    font-size: 0.7rem !important;
+    z-index: 90 !important;
   }
 
   /* Neutralise the header but keep its Leave button reachable. */
@@ -122,5 +131,13 @@ body.meeting-active {
   .meeting-room.meeting-focus-active .meeting-focused-tile .meeting-host-mute {
     top: calc(3rem + env(safe-area-inset-top, 0px)) !important;
     left: calc(0.5rem + env(safe-area-inset-left, 0px)) !important;
+  }
+
+  /* Own mic toggle stays reachable at the bottom-left, clear of Stop sharing. */
+  .meeting-room.meeting-focus-active .meeting-landscape-mic {
+    display: inline-flex !important;
+    bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px)) !important;
+    left: calc(0.75rem + env(safe-area-inset-left, 0px)) !important;
+    z-index: 80 !important;
   }
 }

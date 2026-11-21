@@ -27,6 +27,13 @@ interface Participant {
   handRaised: boolean
 }
 
+type QualityLevel = 'good' | 'poor' | 'critical'
+
+// Slow-network thresholds. A short blip should not kick anyone out.
+const POOR_AFTER_MS = 5000
+const CRITICAL_AFTER_MS = 15000
+const AUTO_LEAVE_AFTER_MS = 30000
+
 // Two-letter initials for the avatar shown when a camera is off
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)
@@ -99,6 +106,22 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   const inviteDropdownRef = useRef<HTMLDivElement>(null)
   const userIdRef = useRef<string>('')
 
+  // --- Connection quality / slow-network handling ---------------------------
+  const [connectionQuality, setConnectionQuality] = useState<QualityLevel>('good')
+  const [leaveSeconds, setLeaveSeconds] = useState<number | null>(null)
+  const [badPeerIds, setBadPeerIds] = useState<Set<string>>(new Set())
+  const [poorPeers, setPoorPeers] = useState<Map<string, QualityLevel>>(new Map())
+  const qualityLevelRef = useRef<QualityLevel>('good')
+  const disconnectedAtRef = useRef<number | null>(null)
+  const peerStatesRef = useRef<Map<string, 'ok' | 'bad' | 'connecting'>>(new Map())
+  const peerBadAtRef = useRef<number | null>(null)
+  const troubleStartedAtRef = useRef<number | null>(null)
+  const deadlineExtensionRef = useRef(0)
+  const autoLeavingRef = useRef(false)
+  const leavingRef = useRef(false)
+  const handleLeaveRef = useRef<() => void>(() => {})
+  const qualityMonitorStartedRef = useRef(0)
+
   // Current camera/mic state, kept in a ref so socket handlers registered once
   // always broadcast the latest values (no stale closures).
   const mediaStateRef = useRef({ videoEnabled: !isAudioOnly, audioEnabled: true })
@@ -159,6 +182,27 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
 
   const handleChatActivity = useCallback((name: string) => {
     recordActivity('message', name)
+  }, [])
+
+  // Fed by WebRTCManager whenever a peer's connection state changes.
+  const handlePeerState = useCallback((socketId: string, state: RTCPeerConnectionState) => {
+    const status = state === 'connected'
+      ? 'ok'
+      : state === 'disconnected' || state === 'failed' || state === 'closed'
+        ? 'bad'
+        : 'connecting'
+    peerStatesRef.current.set(socketId, status)
+
+    const bad = new Set<string>()
+    peerStatesRef.current.forEach((value, id) => { if (value === 'bad') bad.add(id) })
+    setBadPeerIds(bad)
+
+    const allBad = peerStatesRef.current.size > 0 && bad.size === peerStatesRef.current.size
+    if (allBad) {
+      if (!peerBadAtRef.current) peerBadAtRef.current = Date.now()
+    } else {
+      peerBadAtRef.current = null
+    }
   }, [])
 
   // Resolve which signaling endpoint + socket.io path to use.
@@ -237,6 +281,19 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
 
     socket.on('connect', async () => {
       console.log('✅ Connected to signaling server')
+      if (disconnectedAtRef.current !== null) {
+        trackEvent('signaling_reconnected')
+        // Signaling is back — clear the warning immediately rather than
+        // leaving a stale "leaving in 0s" banner up during the peer grace period.
+        qualityLevelRef.current = 'good'
+        troubleStartedAtRef.current = null
+        deadlineExtensionRef.current = 0
+        setConnectionQuality('good')
+        setLeaveSeconds(null)
+        setNotice(null)
+        socket.emit('connection-quality', { roomId: roomName, level: 'good' })
+      }
+      disconnectedAtRef.current = null
       setIsConnecting(false)
       setError(null)
 
@@ -342,7 +399,14 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                   return newMap
                 })
                 pendingHandStatesRef.current.delete(socketId)
-              }
+                peerStatesRef.current.delete(socketId)
+                setBadPeerIds(prev => {
+                  const next = new Set(prev)
+                  next.delete(socketId)
+                  return next
+                })
+              },
+              handlePeerState
             )
             webrtcManagerRef.current = manager
           }
@@ -367,6 +431,15 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
             }
           }
         }
+
+        // On reconnect our socket has a new id: drop peers from the old session
+        // and give fresh connections a short grace period before monitoring.
+        if (!useSFU) webrtcManagerRef.current?.resetPeers()
+        setParticipants(new Map())
+        setBadPeerIds(new Set())
+        peerStatesRef.current.clear()
+        peerBadAtRef.current = null
+        qualityMonitorStartedRef.current = Date.now() + 8000
 
         // Join the room for chat + WebRTC signaling. Done after the manager and
         // local stream are ready so existing participants are announced to
@@ -522,6 +595,20 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       }
     })
 
+    // Another participant told the room their connection is struggling.
+    socket.on('connection-quality', ({ socketId, userName: peerName, level }: { socketId: string; userName?: string; level: QualityLevel }) => {
+      setPoorPeers(prev => {
+        const next = new Map(prev)
+        if (level === 'good') next.delete(socketId)
+        else next.set(socketId, level)
+        return next
+      })
+      if (level !== 'good') {
+        setNotice(`${peerName || 'A participant'} has a weak connection`)
+        window.setTimeout(() => setNotice(null), 3500)
+      }
+    })
+
     // Auto-spotlight whoever starts sharing so a phone rotated to landscape
     // immediately shows that person's screen full-size.
     socket.on('screen-share-state', ({ socketId, userName: sharerName, sharing }: { socketId: string; userName?: string; sharing: boolean }) => {
@@ -542,7 +629,10 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     })
 
     socket.on('disconnect', () => {
-      console.log('Disconnected from signaling server')
+      if (leavingRef.current) return
+      disconnectedAtRef.current = Date.now()
+      console.warn('Disconnected from signaling server')
+      trackEvent('signaling_disconnected')
     })
 
     return () => {
@@ -714,6 +804,30 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         container.appendChild(micBadge)
       }
 
+      // Weak-connection badge reported by that participant themselves.
+      const peerQuality = poorPeers.get(participant.socketId)
+      if (peerQuality) {
+        const weakBadge = document.createElement('div')
+        weakBadge.className = participantIsFocused
+          ? 'absolute top-10 left-1/2 z-10 -translate-x-1/2 bg-red-600 text-white text-xs font-semibold px-2 py-1 rounded-full shadow-md'
+          : 'absolute bottom-1 left-1/2 z-10 -translate-x-1/2 bg-red-600 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full shadow-md'
+        weakBadge.textContent = peerQuality === 'critical' ? '⚠ Disconnecting' : '⚠ Weak connection'
+        weakBadge.title = `${participant.userName || 'Participant'} has a ${peerQuality} connection`
+        container.appendChild(weakBadge)
+      }
+
+      // Our own peer link to them is down: tell the user we're recovering
+      // instead of leaving a black tile that looks like a broken camera.
+      if (badPeerIds.has(participant.socketId)) {
+        const reconnecting = document.createElement('div')
+        reconnecting.className = 'absolute inset-0 z-[5] bg-black/55 flex items-center justify-center pointer-events-none'
+        const reconnectingText = document.createElement('div')
+        reconnectingText.className = 'text-white text-xs sm:text-sm font-medium bg-black/50 px-2 py-1 rounded'
+        reconnectingText.textContent = 'Reconnecting…'
+        reconnecting.appendChild(reconnectingText)
+        container.appendChild(reconnecting)
+      }
+
       // Raised-hand badge, centred at the bottom so it never fights with the
       // host mute button, name label or mic indicator.
       if (participant.handRaised) {
@@ -751,7 +865,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         remoteVideoContainerRef.current.appendChild(container)
       }
     })
-  }, [participants, focusTarget, isFocusMode, isHost, roomName])
+  }, [participants, focusTarget, isFocusMode, isHost, roomName, poorPeers, badPeerIds])
 
   const toggleMute = () => {
     const newMutedState = !isMuted
@@ -922,6 +1036,12 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   }
 
   const handleLeave = () => {
+    // Guard against the manual Leave button and the auto-leave timer both
+    // firing, and stop the quality monitor from treating our own disconnect
+    // as a network failure while we tear down.
+    if (leavingRef.current) return
+    leavingRef.current = true
+
     const endedAt = Date.now()
     const report = buildReport(endedAt)
     if (report.participants.length > 0) saveReport(report)
@@ -945,6 +1065,86 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     }
     onLeave()
   }
+
+  // The auto-leave timer reads this ref so it always calls the newest handler.
+  handleLeaveRef.current = handleLeave
+
+  // Give a struggling connection one more grace window before auto-leave.
+  const postponeAutoLeave = () => {
+    deadlineExtensionRef.current += 15000
+    trackEvent('auto_leave_postponed')
+    setNotice(null)
+  }
+
+  // --- Slow-network monitoring ----------------------------------------------
+  // Escalates good -> poor -> critical from signaling loss and/or every peer
+  // going bad, then leaves the call at the severe threshold. Without this, a
+  // failed peer was destroyed locally while the React view stayed open, which
+  // is the "I'm still in the call but everyone sees me left" zombie state.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (leavingRef.current || autoLeavingRef.current) return
+      const now = Date.now()
+      if (now < qualityMonitorStartedRef.current) return
+
+      const signalingDownAt = disconnectedAtRef.current
+      const peersBadAt = peerBadAtRef.current
+      const inTrouble = signalingDownAt !== null || peersBadAt !== null
+
+      if (inTrouble) {
+        if (troubleStartedAtRef.current === null) {
+          troubleStartedAtRef.current = Math.min(
+            signalingDownAt ?? Infinity,
+            peersBadAt ?? Infinity
+          )
+        }
+        const elapsed = now - troubleStartedAtRef.current
+
+        const level: QualityLevel = elapsed >= CRITICAL_AFTER_MS
+          ? 'critical'
+          : elapsed >= POOR_AFTER_MS
+            ? 'poor'
+            : 'good'
+
+        if (level !== qualityLevelRef.current) {
+          qualityLevelRef.current = level
+          setConnectionQuality(level)
+          socketRef.current?.emit('connection-quality', { roomId: roomName, level })
+          trackEvent('connection_quality', { level, elapsedSec: Math.round(elapsed / 1000) })
+        }
+
+        if (level === 'critical') {
+          const deadline = AUTO_LEAVE_AFTER_MS + deadlineExtensionRef.current
+          setLeaveSeconds(Math.max(0, Math.ceil((deadline - elapsed) / 1000)))
+          if (elapsed >= deadline) {
+            autoLeavingRef.current = true
+            trackEvent('auto_left_slow_connection', { elapsedSec: Math.round(elapsed / 1000) })
+            setNotice('Connection lost — leaving the meeting')
+            handleLeaveRef.current()
+          }
+        } else {
+          setLeaveSeconds(null)
+        }
+      } else {
+        if (troubleStartedAtRef.current !== null) {
+          trackEvent('connection_recovered', {
+            elapsedSec: Math.round((now - troubleStartedAtRef.current) / 1000)
+          })
+          troubleStartedAtRef.current = null
+          deadlineExtensionRef.current = 0
+          setNotice(null)
+        }
+        if (qualityLevelRef.current !== 'good') {
+          qualityLevelRef.current = 'good'
+          setConnectionQuality('good')
+          socketRef.current?.emit('connection-quality', { roomId: roomName, level: 'good' })
+        }
+        setLeaveSeconds(null)
+      }
+    }, 1000)
+
+    return () => window.clearInterval(timer)
+  }, [roomName])
 
   const participantArray = Array.from(participants.values())
 
@@ -1279,6 +1479,38 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         </div>
       )}
 
+      {/* Persistent warning for the participant actually experiencing the slow
+          connection, with a countdown before the app leaves the dead call. */}
+      {connectionQuality !== 'good' && (
+        <div className={`meeting-connection-banner absolute left-1/2 -translate-x-1/2 z-[70] px-3 py-2 rounded-lg shadow-xl text-center text-xs sm:text-sm max-w-[92vw] ${
+          connectionQuality === 'critical' ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'
+        }`} style={{ top: 'calc(4.5rem + env(safe-area-inset-top, 0px))' }}>
+          <div className="font-semibold">
+            {connectionQuality === 'critical'
+              ? `Connection lost — leaving in ${leaveSeconds ?? 0}s`
+              : 'Your connection is unstable. Trying to reconnect…'}
+          </div>
+          {connectionQuality === 'critical' && (
+            <div className="flex items-center justify-center gap-2 mt-1.5">
+              <button
+                type="button"
+                onClick={() => handleLeaveRef.current()}
+                className="bg-white text-red-700 font-semibold px-3 py-1 rounded-full text-xs"
+              >
+                Leave now
+              </button>
+              <button
+                type="button"
+                onClick={postponeAutoLeave}
+                className="bg-white/20 text-white font-semibold px-3 py-1 rounded-full text-xs"
+              >
+                Keep waiting
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Video Grid — spotlight layout focuses one tile and strips the rest to the bottom */}
       <div className="meeting-video-grid flex-1 p-2 pt-16 grid gap-3 overflow-auto scroll-container sm:p-4 sm:pt-20 sm:pb-24" style={isFocusMode ? {
         gridTemplateRows: 'minmax(0, 1fr) auto',
@@ -1375,6 +1607,30 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         {/* Remote Videos Container */}
         <div ref={remoteVideoContainerRef} className="contents"></div>
       </div>
+
+      {/* In landscape spotlight the normal control bar is hidden. Keep a mic
+          toggle on screen so mute/unmute is always reachable while focused. */}
+      <button
+        type="button"
+        onClick={toggleMute}
+        title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+        aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+        aria-pressed={isMuted}
+        className={`meeting-landscape-mic absolute z-[80] hidden h-11 w-11 items-center justify-center rounded-full shadow-lg ${
+          isMuted ? 'bg-red-600 text-white' : 'bg-white/90 text-primary-700'
+        }`}
+      >
+        {isMuted ? (
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+          </svg>
+        ) : (
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+        )}
+      </button>
 
       {/* Floating emoji reactions — rise from above the controls and fade out */}
       <div className="pointer-events-none absolute inset-0 z-40 overflow-hidden">

@@ -7,9 +7,34 @@ interface MeetingSetupProps {
   initialRoomName?: string
 }
 
+const LAST_ROOM_KEY = 'meetup:last-room'
+const LAST_NAME_KEY = 'meetup:last-name'
+const LAST_LINK_KEY = 'meetup:last-link'
+
+function readStored(key: string): string {
+  try {
+    return window.localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeStored(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // Storage can be unavailable in private mode — joining still works.
+  }
+}
+
 export default function MeetingSetup({ onJoin, initialRoomName = '' }: MeetingSetupProps) {
-  const [roomName, setRoomName] = useState(initialRoomName)
-  const [userName, setUserName] = useState('')
+  const lastRoom = readStored(LAST_ROOM_KEY)
+  const lastName = readStored(LAST_NAME_KEY)
+  const lastLink = readStored(LAST_LINK_KEY)
+
+  // An invite link in the URL takes priority; otherwise restore the last room.
+  const [roomName, setRoomName] = useState(initialRoomName || lastRoom)
+  const [userName, setUserName] = useState(lastName)
   const [audioOnly, setAudioOnly] = useState(false)
 
   const generateRoomName = () => {
@@ -24,8 +49,25 @@ export default function MeetingSetup({ onJoin, initialRoomName = '' }: MeetingSe
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (roomName.trim() && userName.trim()) {
-      onJoin(roomName.trim(), userName.trim(), audioOnly)
+      const cleanRoom = roomName.trim()
+      const cleanName = userName.trim()
+      const link = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(cleanRoom)}`
+      writeStored(LAST_ROOM_KEY, cleanRoom)
+      writeStored(LAST_NAME_KEY, cleanName)
+      writeStored(LAST_LINK_KEY, link)
+      onJoin(cleanRoom, cleanName, audioOnly)
     }
+  }
+
+  const rejoinLast = () => {
+    if (!lastRoom) return
+    const name = userName.trim() || lastName
+    if (!name) {
+      document.getElementById('userName')?.focus()
+      return
+    }
+    trackEvent('rejoin_last_meeting')
+    onJoin(lastRoom, name, audioOnly)
   }
 
   return (
@@ -35,6 +77,24 @@ export default function MeetingSetup({ onJoin, initialRoomName = '' }: MeetingSe
           <h1 className="text-4xl font-bold text-primary-700 mb-2">Meetup</h1>
           <p className="text-gray-600">Start or join a video meeting</p>
         </div>
+
+        {lastLink && lastRoom !== initialRoomName && (
+          <div className="mb-5 rounded-lg border border-primary-200 bg-primary-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-primary-700">Last meeting</p>
+                <p className="truncate text-xs text-gray-600" title={lastLink}>{lastRoom}</p>
+              </div>
+              <button
+                type="button"
+                onClick={rejoinLast}
+                className="shrink-0 rounded-full bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700"
+              >
+                Rejoin
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
           <div>

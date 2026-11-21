@@ -174,6 +174,18 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('screen-share-state', payload);
   });
 
+  // Connection quality updates so others can see who is struggling
+  socket.on('connection-quality', ({ roomId, level }) => {
+    const clean = ['good', 'poor', 'critical'].includes(level) ? level : 'good';
+    const participant = rooms.get(roomId)?.participants.get(socket.id);
+    if (participant) participant.quality = clean;
+    socket.to(roomId).emit('connection-quality', {
+      socketId: socket.id,
+      userName: socket.data.userName || '',
+      level: clean
+    });
+  });
+
   // Host-only: mute or unmute reaction sounds for the whole room
   socket.on('room-sound', ({ roomId, muted }) => {
     if (!socket.data.isHost) return;
