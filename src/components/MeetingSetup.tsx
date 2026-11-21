@@ -54,22 +54,22 @@ export default function MeetingSetup({ onJoin, initialRoomName = '' }: MeetingSe
             <label htmlFor="roomName" className="block text-sm font-medium text-gray-700 mb-2">
               Room Name
             </label>
-            <div className="flex gap-2">
+            <div className="space-y-2">
               <input
                 id="roomName"
                 type="text"
                 value={roomName}
                 onChange={(e) => setRoomName(e.target.value)}
                 placeholder="Enter or generate room name"
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
                 required
               />
               <button
                 type="button"
                 onClick={generateRoomName}
-                className="px-4 py-3 bg-primary-100 text-primary-700 rounded-lg hover:bg-primary-200 transition font-medium"
+                className="w-full px-4 py-2.5 bg-primary-100 text-primary-700 rounded-lg hover:bg-primary-200 transition font-medium text-sm"
               >
-                Generate
+                Generate room name
               </button>
             </div>
           </div>
@@ -126,7 +126,7 @@ export default function MeetingSetup({ onJoin, initialRoomName = '' }: MeetingSe
             </div>
           )}
           <p className="mt-2 text-xs text-gray-400">
-            💡 Tip: Use "Generate" for a unique room to avoid moderator requirements
+            💡 Tip: Use "Generate room name" for a unique room to avoid moderator requirements
           </p>
         </div>
       </div>
