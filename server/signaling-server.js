@@ -64,7 +64,8 @@ io.on('connection', (socket) => {
     if (!rooms.has(roomId)) {
       rooms.set(roomId, {
         participants: new Map(),
-        created: Date.now()
+        created: Date.now(),
+        soundMuted: false
       });
     }
 
@@ -95,7 +96,7 @@ io.on('connection', (socket) => {
       }));
 
     socket.emit('existing-participants', existingParticipants);
-    socket.emit('room-info', { hostSocketId: room.hostSocketId });
+    socket.emit('room-info', { hostSocketId: room.hostSocketId, soundMuted: Boolean(room.soundMuted) });
 
     console.log(`User ${userName} (${socket.id}) joined room ${roomId}`);
   });
@@ -153,6 +154,18 @@ io.on('connection', (socket) => {
       socketId: socket.id,
       userName: socket.data.userName || '',
       raised: Boolean(raised)
+    });
+  });
+
+  // Host-only: mute or unmute reaction sounds for the whole room
+  socket.on('room-sound', ({ roomId, muted }) => {
+    if (!socket.data.isHost) return;
+    const room = rooms.get(roomId);
+    if (!room) return;
+    room.soundMuted = Boolean(muted);
+    io.to(roomId).emit('room-sound', {
+      muted: room.soundMuted,
+      byName: socket.data.userName || 'the host'
     });
   });
 

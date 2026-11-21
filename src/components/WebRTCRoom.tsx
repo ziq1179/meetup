@@ -77,6 +77,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   })
   const handRaisedRef = useRef(false)
   const soundMutedRef = useRef(soundMuted)
+  // Host-level switch: mute reaction sounds for the whole room
+  const [roomSoundMuted, setRoomSoundMuted] = useState(false)
+  const roomSoundMutedRef = useRef(false)
   // Hand states received before a participant's stream arrives, replayed when
   // their tile is created.
   const pendingHandStatesRef = useRef<Map<string, boolean>>(new Map())
@@ -116,6 +119,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   useEffect(() => {
     unlockSounds()
   }, [])
+
+  // No sound when either you or the host has muted sounds
+  const soundsOff = () => soundMutedRef.current || roomSoundMutedRef.current
 
   // Resolve which signaling endpoint + socket.io path to use.
   // Production: Vercel WebSocket function on the same origin.
@@ -389,11 +395,27 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     })
 
     // Who is the host (room admin) — first participant, promoted if they leave
-    socket.on('room-info', ({ hostSocketId: hostId }: { hostSocketId: string }) => {
+    socket.on('room-info', ({ hostSocketId: hostId, soundMuted: roomMuted }: { hostSocketId: string; soundMuted?: boolean }) => {
       setHostSocketId(hostId)
+      if (typeof roomMuted === 'boolean') {
+        roomSoundMutedRef.current = roomMuted
+        setRoomSoundMuted(roomMuted)
+      }
     })
     socket.on('host-changed', ({ hostSocketId: hostId }: { hostSocketId: string }) => {
       setHostSocketId(hostId)
+    })
+
+    // The host muted or unmuted reaction sounds for the whole room
+    socket.on('room-sound', ({ muted, byName }: { muted: boolean; byName?: string }) => {
+      roomSoundMutedRef.current = muted
+      setRoomSoundMuted(muted)
+      setNotice(
+        muted
+          ? `Reaction sounds muted for everyone${byName ? ` by ${byName}` : ''}`
+          : 'Reaction sounds turned back on'
+      )
+      window.setTimeout(() => setNotice(null), 3000)
     })
 
     // The host muted us
@@ -417,7 +439,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       const left = 12 + Math.random() * 76
       setReactions(prev => [...prev.slice(-14), { id, emoji, userName: reactorName || 'Someone', left }])
       // No sound for your own reaction — the float is already the feedback
-      if (socketId !== socketRef.current?.id && !soundMutedRef.current) playReactionSound()
+      if (socketId !== socketRef.current?.id && !soundsOff()) playReactionSound()
       // Matches the 3s float animation in tailwind.config.js
       const timer = window.setTimeout(() => {
         setReactions(prev => prev.filter(r => r.id !== id))
@@ -438,7 +460,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         return newMap
       })
       if (raised) {
-        if (!soundMutedRef.current) playHandRaiseSound()
+        if (!soundsOff()) playHandRaiseSound()
         setNotice(`${handUserName || 'A participant'} raised their hand`)
         window.setTimeout(() => setNotice(null), 3500)
       }
@@ -692,7 +714,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     handRaisedRef.current = next
     setIsHandRaised(next)
     broadcastHandState()
-    if (!soundMutedRef.current) playHandConfirmSound()
+    if (!soundsOff()) playHandConfirmSound()
   }
 
   const toggleReactionPalette = () => {
@@ -727,6 +749,27 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       localTapRef.current = now
     }
   }
+
+  // Host: mute sounds for the whole room. Everyone else: mute only themselves.
+  const toggleSounds = () => {
+    if (isHost) {
+      socketRef.current?.emit('room-sound', { roomId: roomName, muted: !roomSoundMuted })
+    } else {
+      setSoundMuted((muted) => !muted)
+    }
+  }
+
+  const soundButtonTitle = isHost
+    ? roomSoundMuted
+      ? 'Turn reaction sounds back on for everyone'
+      : 'Mute reaction sounds for everyone'
+    : roomSoundMuted
+      ? 'Reaction sounds are muted for everyone by the host'
+      : soundMuted
+        ? 'Unmute reaction sounds'
+        : 'Mute reaction sounds'
+
+  const soundIsOff = isHost ? roomSoundMuted : soundMuted || roomSoundMuted
 
   const toggleScreenShare = async () => {
     try {
@@ -1067,6 +1110,14 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                 ✋ {raisedHandCount}
               </span>
             )}
+            {roomSoundMuted && (
+              <span
+                title="Reaction sounds are muted for everyone"
+                className="shrink-0 rounded-full bg-gray-100 border border-gray-300 text-gray-600 text-[10px] sm:text-xs font-semibold px-2 py-0.5"
+              >
+                🔇
+              </span>
+            )}
             {isConnecting && (
               <div className="hidden items-center gap-2 text-primary-600 sm:flex">
                 <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
@@ -1230,15 +1281,15 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
             ))}
             <span className="mx-1 h-6 w-px bg-primary-200" aria-hidden="true" />
             <button
-              onClick={() => setSoundMuted((muted) => !muted)}
-              title={soundMuted ? 'Unmute reaction sounds' : 'Mute reaction sounds'}
-              aria-label={soundMuted ? 'Unmute reaction sounds' : 'Mute reaction sounds'}
-              aria-pressed={soundMuted}
+              onClick={toggleSounds}
+              title={soundButtonTitle}
+              aria-label={soundButtonTitle}
+              aria-pressed={soundIsOff}
               className={`h-8 w-8 rounded-full text-base leading-none transition-colors hover:bg-primary-100 sm:h-10 sm:w-10 sm:text-lg ${
-                soundMuted ? 'text-gray-400' : 'text-primary-700'
+                soundIsOff ? 'text-gray-400' : 'text-primary-700'
               }`}
             >
-              {soundMuted ? '🔇' : '🔊'}
+              {soundIsOff ? '🔇' : '🔊'}
             </button>
           </div>
         </div>
