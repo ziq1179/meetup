@@ -549,7 +549,8 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     socket.on('muted-by-host', ({ byName }: { byName?: string }) => {
       setIsMuted(true)
       if (useSFU && sfuManagerRef.current) {
-        sfuManagerRef.current.toggleAudio(true)
+        // Both managers take `enabled`, so muting means false.
+        sfuManagerRef.current.toggleAudio(false)
       } else if (webrtcManagerRef.current) {
         webrtcManagerRef.current.toggleAudio(false)
       }
@@ -870,7 +871,8 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   const toggleMute = () => {
     const newMutedState = !isMuted
     if (useSFU && sfuManagerRef.current) {
-      sfuManagerRef.current.toggleAudio(newMutedState)
+      // Both managers take `enabled`, not `muted`.
+      sfuManagerRef.current.toggleAudio(!newMutedState)
     } else if (webrtcManagerRef.current) {
       webrtcManagerRef.current.toggleAudio(!newMutedState)
     }
@@ -882,7 +884,8 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   const toggleVideo = () => {
     const newVideoMutedState = !isVideoMuted
     if (useSFU && sfuManagerRef.current) {
-      sfuManagerRef.current.toggleVideo(newVideoMutedState)
+      // Both managers take `enabled`, not `muted`.
+      sfuManagerRef.current.toggleVideo(!newVideoMutedState)
     } else if (webrtcManagerRef.current) {
       webrtcManagerRef.current.toggleVideo(!newVideoMutedState)
     }
@@ -1608,8 +1611,8 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         <div ref={remoteVideoContainerRef} className="contents"></div>
       </div>
 
-      {/* In landscape spotlight the normal control bar is hidden. Keep a mic
-          toggle on screen so mute/unmute is always reachable while focused. */}
+      {/* Landscape spotlight hides the normal control bar. Keep mic and camera
+          as two clearly separate buttons so one tap can never affect both. */}
       <button
         type="button"
         onClick={toggleMute}
@@ -1628,6 +1631,28 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         ) : (
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+        )}
+      </button>
+
+      <button
+        type="button"
+        onClick={toggleVideo}
+        title={isVideoMuted ? 'Turn on camera' : 'Turn off camera'}
+        aria-label={isVideoMuted ? 'Turn on camera' : 'Turn off camera'}
+        aria-pressed={isVideoMuted}
+        className={`meeting-landscape-camera absolute z-[80] hidden h-11 w-11 items-center justify-center rounded-full shadow-lg ${
+          isVideoMuted ? 'bg-red-600 text-white' : 'bg-white/90 text-primary-700'
+        }`}
+      >
+        {isVideoMuted ? (
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M1 1l22 22" />
+          </svg>
+        ) : (
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
         )}
       </button>
