@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client'
 import { WebRTCManager } from '../lib/webrtc'
 import { WebRTCSFUManager } from '../lib/webrtc-sfu'
 import { SFU_CONFIG } from '../config/webrtc'
+import { playHandConfirmSound, playHandRaiseSound, playReactionSound, unlockSounds } from '../lib/sounds'
 import Chat from './Chat'
 
 interface WebRTCRoomProps {
@@ -19,6 +20,7 @@ interface Participant {
   stream: MediaStream | null
   videoEnabled: boolean
   audioEnabled: boolean
+  handRaised: boolean
 }
 
 // Two-letter initials for the avatar shown when a camera is off
@@ -64,6 +66,20 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   const [reactions, setReactions] = useState<FloatingReaction[]>([])
   const reactionTimersRef = useRef<number[]>([])
   const reactionPaletteTimerRef = useRef<number | null>(null)
+  // Raise hand + sound preference
+  const [isHandRaised, setIsHandRaised] = useState(false)
+  const [soundMuted, setSoundMuted] = useState(() => {
+    try {
+      return window.localStorage.getItem('meetup:sound-muted') === '1'
+    } catch {
+      return false
+    }
+  })
+  const handRaisedRef = useRef(false)
+  const soundMutedRef = useRef(soundMuted)
+  // Hand states received before a participant's stream arrives, replayed when
+  // their tile is created.
+  const pendingHandStatesRef = useRef<Map<string, boolean>>(new Map())
   const remoteVideoContainerRef = useRef<HTMLDivElement>(null)
   const inviteDropdownRef = useRef<HTMLDivElement>(null)
   const userIdRef = useRef<string>('')
@@ -78,6 +94,28 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       s.emit('media-state', { roomId: roomName, ...mediaStateRef.current })
     }
   }
+
+  const broadcastHandState = () => {
+    const s = socketRef.current
+    if (s?.connected) {
+      s.emit('hand-state', { roomId: roomName, raised: handRaisedRef.current })
+    }
+  }
+
+  // Keep the ref (read by socket handlers) in sync and persist the preference
+  useEffect(() => {
+    soundMutedRef.current = soundMuted
+    try {
+      window.localStorage.setItem('meetup:sound-muted', soundMuted ? '1' : '0')
+    } catch {
+      // Ignore storage failures (private mode etc.)
+    }
+  }, [soundMuted])
+
+  // Prepare the audio context right after joining (the Join tap is our gesture)
+  useEffect(() => {
+    unlockSounds()
+  }, [])
 
   // Resolve which signaling endpoint + socket.io path to use.
   // Production: Vercel WebSocket function on the same origin.
@@ -183,7 +221,8 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                       userName: existing?.userName || '',
                       stream,
                       videoEnabled: existing?.videoEnabled ?? true,
-                      audioEnabled: existing?.audioEnabled ?? true
+                      audioEnabled: existing?.audioEnabled ?? true,
+                      handRaised: existing?.handRaised ?? pendingHandStatesRef.current.get(socketId) ?? false
                     })
                     return newMap
                   })
@@ -246,7 +285,8 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                     userName: existing?.userName || remoteUserName || '',
                     stream,
                     videoEnabled: existing?.videoEnabled ?? true,
-                    audioEnabled: existing?.audioEnabled ?? true
+                    audioEnabled: existing?.audioEnabled ?? true,
+                    handRaised: existing?.handRaised ?? pendingHandStatesRef.current.get(socketId) ?? false
                   })
                   return newMap
                 })
@@ -257,6 +297,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                   newMap.delete(socketId)
                   return newMap
                 })
+                pendingHandStatesRef.current.delete(socketId)
               }
             )
             webrtcManagerRef.current = manager
@@ -342,7 +383,10 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     })
 
     // A newcomer can't know our current state — tell them as soon as they join
-    socket.on('user-joined', () => broadcastMediaState())
+    socket.on('user-joined', () => {
+      broadcastMediaState()
+      if (handRaisedRef.current) broadcastHandState()
+    })
 
     // Who is the host (room admin) — first participant, promoted if they leave
     socket.on('room-info', ({ hostSocketId: hostId }: { hostSocketId: string }) => {
@@ -367,16 +411,37 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     })
 
     // Emoji reactions from anyone in the room (our own included)
-    socket.on('reaction', ({ emoji, userName: reactorName }: { emoji: string; userName?: string }) => {
+    socket.on('reaction', ({ socketId, emoji, userName: reactorName }: { socketId?: string; emoji: string; userName?: string }) => {
       if (!emoji) return
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const left = 12 + Math.random() * 76
       setReactions(prev => [...prev.slice(-14), { id, emoji, userName: reactorName || 'Someone', left }])
+      // No sound for your own reaction — the float is already the feedback
+      if (socketId !== socketRef.current?.id && !soundMutedRef.current) playReactionSound()
       // Matches the 3s float animation in tailwind.config.js
       const timer = window.setTimeout(() => {
         setReactions(prev => prev.filter(r => r.id !== id))
       }, 3100)
       reactionTimersRef.current.push(timer)
+    })
+
+    // Someone raised or lowered their hand
+    socket.on('hand-state', ({ socketId, userName: handUserName, raised }: { socketId: string; userName?: string; raised: boolean }) => {
+      // Our own raise is applied locally already
+      if (socketId === socketRef.current?.id) return
+      pendingHandStatesRef.current.set(socketId, raised)
+      setParticipants(prev => {
+        const existing = prev.get(socketId)
+        if (!existing) return prev
+        const newMap = new Map(prev)
+        newMap.set(socketId, { ...existing, handRaised: raised })
+        return newMap
+      })
+      if (raised) {
+        if (!soundMutedRef.current) playHandRaiseSound()
+        setNotice(`${handUserName || 'A participant'} raised their hand`)
+        window.setTimeout(() => setNotice(null), 3500)
+      }
     })
 
     socket.on('reconnect_failed', () => {
@@ -415,6 +480,8 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
 
   // The host (first participant) gets admin controls: mute any participant.
   const isHost = !!hostSocketId && hostSocketId === socketRef.current?.id
+  const raisedHandCount =
+    (isHandRaised ? 1 : 0) + Array.from(participants.values()).filter((p) => p.handRaised).length
 
   // Auto-spotlight yourself when you start sharing your screen, so you get the
   // full-screen preview; un-focus when you stop.
@@ -538,6 +605,38 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         container.appendChild(micBadge)
       }
 
+      // Raised-hand badge, centred at the bottom so it never fights with the
+      // host mute button, name label or mic indicator.
+      if (participant.handRaised) {
+        const handBadge = document.createElement('div')
+        handBadge.className = participantIsFocused
+          ? 'absolute top-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-400 px-2 py-1 text-sm shadow-md ring-2 ring-white/70 animate-bounce'
+          : 'absolute top-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] shadow-md ring-2 ring-white/70 animate-bounce'
+        handBadge.textContent = '✋'
+        handBadge.title = `${participant.userName || 'Participant'} raised their hand`
+        container.appendChild(handBadge)
+      }
+
+      // Double-tap / double-click a tile to send a quick 👍
+      container.ondblclick = (e) => {
+        e.stopPropagation()
+        emitReaction('👍')
+      }
+      // Mobile browsers don't always fire dblclick, so detect a double tap here
+      let lastTapAt = 0
+      container.addEventListener('touchend', (e) => {
+        if ((e.target as HTMLElement).closest('button')) return
+        const now = Date.now()
+        if (now - lastTapAt < 350) {
+          emitReaction('👍')
+          lastTapAt = 0
+        } else {
+          lastTapAt = now
+        }
+      })
+      container.style.touchAction = 'manipulation'
+      container.title = participantIsFocused ? 'Double-click to react 👍' : 'Double-click to react 👍 · click to focus'
+
       if (remoteVideoContainerRef.current) {
         remoteVideoContainerRef.current.appendChild(container)
       }
@@ -568,10 +667,16 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     broadcastMediaState()
   }
 
+  // Fire a reaction to everyone in the room (used by the palette and by
+  // double-tapping a tile)
+  const emitReaction = (emoji: string) => {
+    socketRef.current?.emit('reaction', { roomId: roomName, emoji })
+  }
+
   // Send an emoji reaction to everyone in the room. The palette stays open for
   // a few seconds so people can send more than one, then closes itself.
   const sendReaction = (emoji: string) => {
-    socketRef.current?.emit('reaction', { roomId: roomName, emoji })
+    emitReaction(emoji)
     if (reactionPaletteTimerRef.current) {
       window.clearTimeout(reactionPaletteTimerRef.current)
     }
@@ -579,6 +684,15 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       setShowReactions(false)
       reactionPaletteTimerRef.current = null
     }, 4000)
+  }
+
+  // Raise/lower hand. Everyone sees a hand badge on the tile.
+  const toggleHand = () => {
+    const next = !handRaisedRef.current
+    handRaisedRef.current = next
+    setIsHandRaised(next)
+    broadcastHandState()
+    if (!soundMutedRef.current) playHandConfirmSound()
   }
 
   const toggleReactionPalette = () => {
@@ -598,6 +712,19 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         setShowReactions(false)
         reactionPaletteTimerRef.current = null
       }, 8000)
+    }
+  }
+
+  // Double-tap the local tile to react 👍 as well
+  const localTapRef = useRef(0)
+  const handleLocalTileTap = (e: React.MouseEvent | React.TouchEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    const now = Date.now()
+    if (now - localTapRef.current < 350) {
+      emitReaction('👍')
+      localTapRef.current = 0
+    } else {
+      localTapRef.current = now
     }
   }
 
@@ -932,6 +1059,14 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                 Host
               </span>
             )}
+            {raisedHandCount > 0 && (
+              <span
+                title="Hands raised"
+                className="shrink-0 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-[10px] sm:text-xs font-semibold px-2 py-0.5"
+              >
+                ✋ {raisedHandCount}
+              </span>
+            )}
             {isConnecting && (
               <div className="hidden items-center gap-2 text-primary-600 sm:flex">
                 <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
@@ -986,12 +1121,16 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         paddingBottom: 'max(6rem, calc(env(safe-area-inset-bottom, 0px) + 6.5rem))'
       }}>
         {/* Local Video */}
-        <div className={`${focusTarget === 'local'
+        <div
+          onDoubleClick={() => emitReaction('👍')}
+          onTouchEnd={handleLocalTileTap}
+          title="Double-tap to react 👍"
+          className={`${focusTarget === 'local'
           ? 'order-1 row-start-1 min-h-0 border-primary-400'
           : isFocusMode
             ? 'order-2 row-start-2 w-40 h-24 shrink-0 cursor-pointer hover:border-primary-400 border-primary-200'
             : 'border-primary-200'
-        } relative bg-gray-100 rounded-lg overflow-hidden border-2 shadow-lg`}>
+        } relative bg-gray-100 rounded-lg overflow-hidden border-2 shadow-lg touch-manipulation`}>
           <video
             ref={localVideoRef}
             autoPlay
@@ -1022,6 +1161,16 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
               }`}>
                 {userName}
               </div>
+            </div>
+          )}
+          {isHandRaised && (
+            <div
+              title="Your hand is raised"
+              className={`absolute top-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-400 shadow-md ring-2 ring-white/70 animate-bounce ${
+                focusTarget === 'local' ? 'px-2 py-1 text-sm' : 'px-1.5 py-0.5 text-[10px]'
+              }`}
+            >
+              ✋
             </div>
           )}
           {focusTarget === 'local' ? (
@@ -1074,11 +1223,23 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                 onClick={() => sendReaction(emoji)}
                 title={`React with ${emoji}`}
                 aria-label={`React with ${emoji}`}
-                className="h-9 w-9 rounded-full text-xl leading-none transition-transform hover:scale-125 active:scale-95 sm:h-10 sm:w-10 sm:text-2xl"
+                className="h-8 w-8 rounded-full text-lg leading-none transition-transform hover:scale-125 active:scale-95 sm:h-10 sm:w-10 sm:text-2xl"
               >
                 {emoji}
               </button>
             ))}
+            <span className="mx-1 h-6 w-px bg-primary-200" aria-hidden="true" />
+            <button
+              onClick={() => setSoundMuted((muted) => !muted)}
+              title={soundMuted ? 'Unmute reaction sounds' : 'Mute reaction sounds'}
+              aria-label={soundMuted ? 'Unmute reaction sounds' : 'Mute reaction sounds'}
+              aria-pressed={soundMuted}
+              className={`h-8 w-8 rounded-full text-base leading-none transition-colors hover:bg-primary-100 sm:h-10 sm:w-10 sm:text-lg ${
+                soundMuted ? 'text-gray-400' : 'text-primary-700'
+              }`}
+            >
+              {soundMuted ? '🔇' : '🔊'}
+            </button>
           </div>
         </div>
       )}
@@ -1126,6 +1287,21 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             )}
+          </button>
+
+          {/* Raise hand */}
+          <button
+            onClick={toggleHand}
+            className={`p-2.5 rounded-full transition-all sm:p-4 ${
+              isHandRaised
+                ? 'bg-amber-400 hover:bg-amber-500 text-white ring-2 ring-amber-200'
+                : 'bg-primary-100 hover:bg-primary-200 text-primary-700'
+            }`}
+            title={isHandRaised ? 'Lower your hand' : 'Raise your hand'}
+            aria-label={isHandRaised ? 'Lower your hand' : 'Raise your hand'}
+            aria-pressed={isHandRaised}
+          >
+            <span className="block text-xl leading-none sm:text-2xl">✋</span>
           </button>
 
           {/* Emoji reactions */}
@@ -1189,7 +1365,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           {canFullscreen && (
             <button
               onClick={toggleFullscreen}
-              className="p-3 rounded-full transition-all sm:p-4 bg-primary-100 hover:bg-primary-200 text-primary-700"
+              className="p-2.5 rounded-full transition-all sm:p-4 bg-primary-100 hover:bg-primary-200 text-primary-700"
               title={isFullscreen ? 'Exit fullscreen' : 'Go fullscreen'}
             >
               {isFullscreen ? (

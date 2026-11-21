@@ -147,6 +147,15 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Raise/lower hand — broadcast to the whole room so tiles show a hand badge
+  socket.on('hand-state', ({ roomId, raised }) => {
+    io.to(roomId).emit('hand-state', {
+      socketId: socket.id,
+      userName: socket.data.userName || '',
+      raised: Boolean(raised)
+    });
+  });
+
   // Host-only: ask a participant to mute their microphone
   socket.on('mute-participant', ({ roomId, targetSocketId }) => {
     if (!socket.data.isHost) return;
