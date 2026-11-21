@@ -632,8 +632,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       if (participant.handRaised) {
         const handBadge = document.createElement('div')
         handBadge.className = participantIsFocused
-          ? 'absolute top-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-400 px-2 py-1 text-sm shadow-md ring-2 ring-white/70 animate-bounce'
-          : 'absolute top-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] shadow-md ring-2 ring-white/70 animate-bounce'
+          ? 'absolute top-2 left-1/2 z-10 -translate-x-1/2 text-2xl leading-none animate-bounce'
+          : 'absolute top-1 left-1/2 z-10 -translate-x-1/2 text-lg leading-none animate-bounce'
+        handBadge.style.filter = 'drop-shadow(0 1px 3px rgba(0,0,0,0.9))'
         handBadge.textContent = '✋'
         handBadge.title = `${participant.userName || 'Participant'} raised their hand`
         container.appendChild(handBadge)
@@ -1215,8 +1216,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           {isHandRaised && (
             <div
               title="Your hand is raised"
-              className={`absolute top-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-400 shadow-md ring-2 ring-white/70 animate-bounce ${
-                focusTarget === 'local' ? 'px-2 py-1 text-sm' : 'px-1.5 py-0.5 text-[10px]'
+              style={{ filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.9))' }}
+              className={`absolute top-2 left-1/2 z-10 -translate-x-1/2 leading-none animate-bounce ${
+                focusTarget === 'local' ? 'text-2xl' : 'text-lg'
               }`}
             >
               ✋
