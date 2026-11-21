@@ -44,6 +44,12 @@ function getInitials(name: string): string {
 // Quick-reaction palette shown above the call controls
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '😮', '😢', '🔥']
 
+// Line-art icons for the spotlight buttons. Corner brackets read as
+// "expand to full screen"; the four-tile grid reads as "show everyone again".
+// Kept as strings so the DOM-created remote tiles can share them with the JSX.
+const FOCUS_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/></svg>`
+const SHOW_ALL_ICON = `<svg class="meeting-focus-icon h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.5"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.5"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.5"/><rect x="14" y="14" width="6.5" height="6.5" rx="1.5"/></svg>`
+
 interface FloatingReaction {
   id: string
   emoji: string
@@ -763,10 +769,13 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
 
       const focusBtn = document.createElement('button')
       focusBtn.type = 'button'
-      focusBtn.textContent = participantIsFocused ? '✕ Show all' : '⤢ Focus'
+      focusBtn.innerHTML = participantIsFocused
+        ? `${SHOW_ALL_ICON}<span>Show all</span>`
+        : `${FOCUS_ICON}<span>Focus</span>`
+      focusBtn.title = participantIsFocused ? 'Show all participants' : 'Spotlight this video'
       focusBtn.className = participantIsFocused
-        ? 'meeting-exit-focus absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium'
-        : 'absolute top-1.5 right-1.5 z-10 bg-primary-600 hover:bg-primary-700 text-white text-[10px] px-2 py-1 rounded-full shadow-md font-medium'
+        ? 'meeting-exit-focus absolute top-2 right-2 z-10 flex items-center gap-1.5 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium'
+        : 'absolute top-1.5 right-1.5 z-10 flex items-center gap-1 bg-primary-600 hover:bg-primary-700 text-white text-[10px] px-2 py-1 rounded-full shadow-md font-medium'
       focusBtn.onclick = (e) => {
         e.stopPropagation()
         setFocusedSocketId(participantIsFocused ? null : participant.socketId)
@@ -1583,9 +1592,11 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
             <>
               <button
                 onClick={() => setFocusedSocketId(null)}
-                className="meeting-exit-focus absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium"
+                title="Show all participants"
+                className="meeting-exit-focus absolute top-2 right-2 z-10 flex items-center gap-1.5 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium"
               >
-                ✕ Show all
+                <span dangerouslySetInnerHTML={{ __html: SHOW_ALL_ICON }} />
+                <span>Show all</span>
               </button>
               {isScreenSharing && (
                 <button
@@ -1600,9 +1611,10 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
             <button
               onClick={() => setFocusedSocketId('local')}
               title={isScreenSharing ? 'You are sharing' : 'Spotlight your video'}
-              className="absolute top-2 right-2 z-10 bg-primary-600 hover:bg-primary-700 text-white text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium"
+              className="absolute top-2 right-2 z-10 flex items-center gap-1.5 bg-primary-600 hover:bg-primary-700 text-white text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium"
             >
-              ⤢ Focus
+              <span dangerouslySetInnerHTML={{ __html: FOCUS_ICON }} />
+              <span>Focus</span>
             </button>
           )}
         </div>

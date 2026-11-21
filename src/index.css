@@ -36,6 +36,15 @@ body.meeting-active {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Spotlight buttons use line-art icons; give the strokes a small, springy
+   response on hover so the control feels alive without being distracting. */
+.meeting-focus-icon {
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+button:hover .meeting-focus-icon {
+  transform: scale(1.15);
+}
+
 /* Hide all Jitsi UI elements */
 #jitsi-container iframe {
   border: none;
