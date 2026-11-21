@@ -117,6 +117,14 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     }
   }
 
+  // Tell the room to spotlight us while we share, and to release it after
+  const broadcastScreenShareState = (sharing: boolean) => {
+    const s = socketRef.current
+    if (s?.connected) {
+      s.emit('screen-share-state', { roomId: roomName, sharing })
+    }
+  }
+
   // Keep the ref (read by socket handlers) in sync and persist the preference
   useEffect(() => {
     soundMutedRef.current = soundMuted
@@ -514,6 +522,19 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       }
     })
 
+    // Auto-spotlight whoever starts sharing so a phone rotated to landscape
+    // immediately shows that person's screen full-size.
+    socket.on('screen-share-state', ({ socketId, userName: sharerName, sharing }: { socketId: string; userName?: string; sharing: boolean }) => {
+      if (socketId === socketRef.current?.id) return
+      if (sharing) {
+        setFocusedSocketId(socketId)
+        setNotice(`${sharerName || 'A participant'} is sharing — tap ✕ to show all`)
+        window.setTimeout(() => setNotice(null), 3500)
+      } else {
+        setFocusedSocketId(prev => (prev === socketId ? null : prev))
+      }
+    })
+
     socket.on('reconnect_failed', () => {
       captureError(new Error('signaling reconnect failed'), 'signaling-reconnect')
       setError('Connection lost. Please refresh the page.')
@@ -603,9 +624,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
 
       const container = document.createElement('div')
       container.className = participantIsFocused
-        ? 'relative bg-gray-100 rounded-lg overflow-hidden border-2 border-primary-400 shadow-xl order-1 row-start-1 min-h-0'
+        ? 'meeting-focused-tile relative bg-gray-100 rounded-lg overflow-hidden border-2 border-primary-400 shadow-xl order-1 row-start-1 min-h-0'
         : isFocusMode
-          ? 'relative bg-gray-100 rounded-lg overflow-hidden border-2 border-primary-200 shadow-lg order-2 row-start-2 w-40 h-24 shrink-0 cursor-pointer hover:border-primary-400'
+          ? 'meeting-thumb relative bg-gray-100 rounded-lg overflow-hidden border-2 border-primary-200 shadow-lg order-2 row-start-2 w-40 h-24 shrink-0 cursor-pointer hover:border-primary-400'
           : 'relative bg-gray-100 rounded-lg overflow-hidden border-2 border-primary-200 shadow-lg'
 
       if (cameraOff) {
@@ -653,7 +674,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       focusBtn.type = 'button'
       focusBtn.textContent = participantIsFocused ? '✕ Show all' : '⤢ Focus'
       focusBtn.className = participantIsFocused
-        ? 'absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium'
+        ? 'meeting-exit-focus absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium'
         : 'absolute top-1.5 right-1.5 z-10 bg-primary-600 hover:bg-primary-700 text-white text-[10px] px-2 py-1 rounded-full shadow-md font-medium'
       focusBtn.onclick = (e) => {
         e.stopPropagation()
@@ -847,6 +868,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           await webrtcManagerRef.current.stopScreenShare()
         }
         setIsScreenSharing(false)
+        broadcastScreenShareState(false)
       } else {
         if (useSFU && sfuManagerRef.current) {
           await sfuManagerRef.current.startScreenShare()
@@ -854,6 +876,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           await webrtcManagerRef.current.startScreenShare()
         }
         setIsScreenSharing(true)
+        broadcastScreenShareState(true)
         recordActivity('screen-share', userName)
         trackEvent('screen_share')
       }
@@ -1081,9 +1104,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   }, [roomName])
 
   return (
-    <div className="h-screen w-screen relative bg-white flex flex-col overflow-hidden" style={{ height: '100dvh' }}>
+    <div className={`meeting-room h-screen w-screen relative bg-white flex flex-col overflow-hidden ${isFocusMode ? 'meeting-focus-active' : ''}`} style={{ height: '100dvh' }}>
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-primary-200 shadow-sm" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+      <div className="meeting-header absolute top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-primary-200 shadow-sm" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         <div className="flex items-center justify-between gap-2 px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <div className="flex items-center gap-1.5 shrink-0 sm:pr-3 sm:mr-1 sm:border-r sm:border-primary-200">
@@ -1239,7 +1262,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           </div>
           <button
             onClick={handleLeave}
-            className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-medium transition flex items-center gap-2 shrink-0 sm:px-4"
+            className="meeting-leave-btn bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-medium transition flex items-center gap-2 shrink-0 sm:px-4"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1257,7 +1280,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       )}
 
       {/* Video Grid — spotlight layout focuses one tile and strips the rest to the bottom */}
-      <div className="flex-1 p-2 pt-16 grid gap-3 overflow-auto scroll-container sm:p-4 sm:pt-20 sm:pb-24" style={isFocusMode ? {
+      <div className="meeting-video-grid flex-1 p-2 pt-16 grid gap-3 overflow-auto scroll-container sm:p-4 sm:pt-20 sm:pb-24" style={isFocusMode ? {
         gridTemplateRows: 'minmax(0, 1fr) auto',
         maxWidth: '100vw',
         paddingBottom: 'max(6rem, calc(env(safe-area-inset-bottom, 0px) + 6.5rem))'
@@ -1273,9 +1296,9 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           onTouchEnd={handleLocalTileTap}
           title="Double-tap to react 👍"
           className={`${focusTarget === 'local'
-          ? 'order-1 row-start-1 min-h-0 border-primary-400'
+          ? 'meeting-focused-tile order-1 row-start-1 min-h-0 border-primary-400'
           : isFocusMode
-            ? 'order-2 row-start-2 w-40 h-24 shrink-0 cursor-pointer hover:border-primary-400 border-primary-200'
+            ? 'meeting-thumb order-2 row-start-2 w-40 h-24 shrink-0 cursor-pointer hover:border-primary-400 border-primary-200'
             : 'border-primary-200'
         } relative bg-gray-100 rounded-lg overflow-hidden border-2 shadow-lg touch-manipulation`}>
           <video
@@ -1322,12 +1345,22 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
             </div>
           )}
           {focusTarget === 'local' ? (
-            <button
-              onClick={() => setFocusedSocketId(null)}
-              className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium"
-            >
-              ✕ Show all
-            </button>
+            <>
+              <button
+                onClick={() => setFocusedSocketId(null)}
+                className="meeting-exit-focus absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-900 text-xs sm:text-sm px-3 py-1.5 rounded-full shadow-md font-medium"
+              >
+                ✕ Show all
+              </button>
+              {isScreenSharing && (
+                <button
+                  onClick={toggleScreenShare}
+                  className="meeting-landscape-stop absolute bottom-6 left-1/2 z-10 hidden -translate-x-1/2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-lg"
+                >
+                  ⏹ Stop sharing
+                </button>
+              )}
+            </>
           ) : (
             <button
               onClick={() => setFocusedSocketId('local')}

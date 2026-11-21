@@ -65,7 +65,8 @@ io.on('connection', (socket) => {
       rooms.set(roomId, {
         participants: new Map(),
         created: Date.now(),
-        soundMuted: false
+        soundMuted: false,
+        screenShare: null
       });
     }
 
@@ -97,6 +98,8 @@ io.on('connection', (socket) => {
 
     socket.emit('existing-participants', existingParticipants);
     socket.emit('room-info', { hostSocketId: room.hostSocketId, soundMuted: Boolean(room.soundMuted) });
+    // A newcomer should land on the current screen share, if one is running
+    if (room.screenShare) socket.emit('screen-share-state', room.screenShare);
 
     console.log(`User ${userName} (${socket.id}) joined room ${roomId}`);
   });
@@ -155,6 +158,20 @@ io.on('connection', (socket) => {
       userName: socket.data.userName || '',
       raised: Boolean(raised)
     });
+  });
+
+  // Spotlight whoever starts sharing so landscape phones show the shared
+  // screen full-size. Excludes the sender (they spotlight themselves locally).
+  socket.on('screen-share-state', ({ roomId, sharing }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    const payload = {
+      socketId: socket.id,
+      userName: socket.data.userName || '',
+      sharing: Boolean(sharing)
+    };
+    room.screenShare = payload.sharing ? payload : null;
+    socket.to(roomId).emit('screen-share-state', payload);
   });
 
   // Host-only: mute or unmute reaction sounds for the whole room
@@ -221,6 +238,16 @@ io.on('connection', (socket) => {
           const nextHostSocket = io.sockets.sockets.get(nextHostId);
           if (nextHostSocket) nextHostSocket.data.isHost = true;
           io.to(roomId).emit('host-changed', { hostSocketId: nextHostId });
+        }
+
+        // If the sharer left, drop everyone out of the spotlight
+        if (room.screenShare?.socketId === socket.id) {
+          room.screenShare = null;
+          io.to(roomId).emit('screen-share-state', {
+            socketId: socket.id,
+            userName: participant.userName || '',
+            sharing: false
+          });
         }
 
         // Notify others
