@@ -695,17 +695,15 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     socketRef.current?.emit('reaction', { roomId: roomName, emoji })
   }
 
-  // Send an emoji reaction to everyone in the room. The palette stays open for
-  // a few seconds so people can send more than one, then closes itself.
+  // Send an emoji reaction to everyone in the room, then close the palette
+  // right away so it never covers the call after a pick.
   const sendReaction = (emoji: string) => {
     emitReaction(emoji)
     if (reactionPaletteTimerRef.current) {
       window.clearTimeout(reactionPaletteTimerRef.current)
-    }
-    reactionPaletteTimerRef.current = window.setTimeout(() => {
-      setShowReactions(false)
       reactionPaletteTimerRef.current = null
-    }, 4000)
+    }
+    setShowReactions(false)
   }
 
   // Raise/lower hand. Everyone sees a hand badge on the tile.
