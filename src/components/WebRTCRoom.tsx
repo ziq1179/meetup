@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { WebRTCManager } from '../lib/webrtc'
 import { WebRTCSFUManager } from '../lib/webrtc-sfu'
 import { SFU_CONFIG } from '../config/webrtc'
 import { playHandConfirmSound, playHandRaiseSound, playReactionSound, unlockSounds } from '../lib/sounds'
+import { captureError, trackEvent } from '../lib/telemetry'
+import { countActivity, loadReports, saveReport } from '../lib/meetingReport'
+import type { ActivityEntry, MeetingReport } from '../lib/meetingReport'
 import Chat from './Chat'
+import MeetingReportModal from './MeetingReport'
 
 interface WebRTCRoomProps {
   roomName: string
@@ -57,6 +61,13 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [messageCount, setMessageCount] = useState(0)
+  // Meeting activity report (host only) - metadata, never message contents
+  const [reportOpen, setReportOpen] = useState(false)
+  const [liveReport, setLiveReport] = useState<MeetingReport | null>(null)
+  const startedAtRef = useRef(Date.now())
+  const activityRef = useRef<ActivityEntry[]>([])
+  const participantsSeenRef = useRef<Set<string>>(new Set())
+  const participantNamesRef = useRef<Map<string, string>>(new Map())
   const [showInviteDropdown, setShowInviteDropdown] = useState(false)
   const [copiedToClipboard, setCopiedToClipboard] = useState(false)
   // Host (room admin) is the first participant; they can mute others.
@@ -123,6 +134,24 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
 
   // No sound when either you or the host has muted sounds
   const soundsOff = () => soundMutedRef.current || roomSoundMutedRef.current
+
+  const recordActivity = (type: ActivityEntry['type'], name?: string, detail?: string) => {
+    activityRef.current.push({ at: Date.now(), type, name, detail })
+    if (activityRef.current.length > 500) activityRef.current.shift()
+  }
+
+  const noteParticipant = (name: string, socketId?: string) => {
+    const clean = name || 'Guest'
+    if (socketId) participantNamesRef.current.set(socketId, clean)
+    if (!participantsSeenRef.current.has(clean)) {
+      participantsSeenRef.current.add(clean)
+      recordActivity('join', clean)
+    }
+  }
+
+  const handleChatActivity = useCallback((name: string) => {
+    recordActivity('message', name)
+  }, [])
 
   // Resolve which signaling endpoint + socket.io path to use.
   // Production: Vercel WebSocket function on the same origin.
@@ -265,13 +294,13 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
                 audioEnabled: localStream.getAudioTracks().length > 0
               }
             } catch (err: any) {
-              console.error('Error initializing SFU:', err)
+              captureError(err, 'sfu-init')
               setError(err.message || 'Failed to initialize SFU')
             }
           })
 
           sfuSocket.on('connect_error', (err) => {
-            console.error('SFU connection error:', err)
+            captureError(err, 'sfu-connect')
             setError('Failed to connect to SFU server. Make sure mediasoup server is running.')
           })
         } else {
@@ -339,11 +368,13 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           userId,
           userName
         })
-        console.log('Joined room:', roomName)
         // Announce current camera/mic state so existing participants render our
         // tile correctly from the start.
         broadcastMediaState()
+        noteParticipant(userName)
+        trackEvent('meeting_joined', { audioOnly: isAudioOnly ? 1 : 0 })
       } catch (err: any) {
+        captureError(err, 'webrtc-init')
         console.error('Error initializing WebRTC:', err)
         setError(err.message || 'Failed to access camera/microphone')
         // No camera available — present as "camera off" so others see our name
@@ -356,7 +387,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     })
 
     socket.on('connect_error', (err) => {
-      console.error('Connection error:', err)
+      captureError(err, 'signaling-connect')
       // Don't show error immediately - Socket.io will keep retrying
       console.log('🔄 Retrying connection...')
       // Show error after a delay if still not connected
@@ -389,10 +420,24 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       })
     })
 
+    // People already in the room when we arrived
+    socket.on('existing-participants', (list: Array<{ userName?: string; socketId?: string }>) => {
+      list.forEach((person) => noteParticipant(person.userName || 'Guest', person.socketId))
+    })
+
     // A newcomer can't know our current state — tell them as soon as they join
-    socket.on('user-joined', () => {
+    socket.on('user-joined', ({ userName: joinedName, socketId: joinedId }: { userName?: string; socketId?: string }) => {
+      noteParticipant(joinedName || 'Guest', joinedId)
       broadcastMediaState()
       if (handRaisedRef.current) broadcastHandState()
+    })
+
+    socket.on('user-left', ({ socketId: leftId }: { socketId?: string }) => {
+      if (leftId) {
+        const name = participantNamesRef.current.get(leftId)
+        if (name) recordActivity('leave', name)
+        participantNamesRef.current.delete(leftId)
+      }
     })
 
     // Who is the host (room admin) — first participant, promoted if they leave
@@ -439,6 +484,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const left = 12 + Math.random() * 76
       setReactions(prev => [...prev.slice(-14), { id, emoji, userName: reactorName || 'Someone', left, swirlAlt: Math.random() < 0.5 }])
+      recordActivity('reaction', reactorName || 'Someone', emoji)
       // No sound for your own reaction — the float is already the feedback
       if (socketId !== socketRef.current?.id && !soundsOff()) playReactionSound()
       // Matches the 3s float animation in tailwind.config.js
@@ -461,6 +507,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
         return newMap
       })
       if (raised) {
+        recordActivity('hand', handUserName || 'A participant')
         if (!soundsOff()) playHandRaiseSound()
         setNotice(`${handUserName || 'A participant'} raised their hand`)
         window.setTimeout(() => setNotice(null), 3500)
@@ -468,7 +515,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     })
 
     socket.on('reconnect_failed', () => {
-      console.error('❌ Failed to reconnect to signaling server')
+      captureError(new Error('signaling reconnect failed'), 'signaling-reconnect')
       setError('Connection lost. Please refresh the page.')
       setIsConnecting(false)
     })
@@ -505,6 +552,20 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   const isHost = !!hostSocketId && hostSocketId === socketRef.current?.id
   const raisedHandCount =
     (isHandRaised ? 1 : 0) + Array.from(participants.values()).filter((p) => p.handRaised).length
+
+  const buildReport = (endedAt: number): MeetingReport => {
+    const activity = [...activityRef.current]
+    return {
+      id: `${startedAtRef.current}-${Math.random().toString(36).slice(2, 8)}`,
+      roomName,
+      startedAt: startedAtRef.current,
+      endedAt,
+      host: isHost,
+      participants: Array.from(participantsSeenRef.current),
+      activity,
+      counts: countActivity(activity),
+    }
+  }
 
   // Auto-spotlight yourself when you start sharing your screen, so you get the
   // full-screen preview; un-focus when you stop.
@@ -701,6 +762,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   // right away so it never covers the call after a pick.
   const sendReaction = (emoji: string) => {
     emitReaction(emoji)
+    trackEvent('reaction_sent')
     if (reactionPaletteTimerRef.current) {
       window.clearTimeout(reactionPaletteTimerRef.current)
       reactionPaletteTimerRef.current = null
@@ -714,6 +776,7 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
     handRaisedRef.current = next
     setIsHandRaised(next)
     broadcastHandState()
+    if (next) trackEvent('hand_raised')
     if (!soundsOff()) playHandConfirmSound()
   }
 
@@ -787,9 +850,11 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
           await webrtcManagerRef.current.startScreenShare()
         }
         setIsScreenSharing(true)
+        recordActivity('screen-share', userName)
+        trackEvent('screen_share')
       }
     } catch (error) {
-      console.error('Error toggling screen share:', error)
+      captureError(error, 'screen-share')
     }
   }
 
@@ -830,6 +895,16 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
   }
 
   const handleLeave = () => {
+    const endedAt = Date.now()
+    const report = buildReport(endedAt)
+    if (report.participants.length > 0) saveReport(report)
+    trackEvent('meeting_ended', {
+      durationSec: Math.round((endedAt - report.startedAt) / 1000),
+      messages: report.counts.message || 0,
+      reactions: report.counts.reaction || 0,
+      host: isHost ? 1 : 0,
+    })
+
     if (useSFU && sfuManagerRef.current) {
       sfuManagerRef.current.cleanup()
     } else if (webrtcManagerRef.current) {
@@ -1101,6 +1176,19 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
               >
                 Host
               </span>
+            )}
+            {isHost && (
+              <button
+                onClick={() => {
+                  setLiveReport(buildReport(Date.now()))
+                  setReportOpen(true)
+                }}
+                title="Meeting report"
+                aria-label="Meeting report"
+                className="shrink-0 rounded-full bg-primary-100 border border-primary-300 text-primary-700 text-xs px-2 py-0.5 hover:bg-primary-200"
+              >
+                📋
+              </button>
             )}
             {raisedHandCount > 0 && (
               <span
@@ -1470,6 +1558,15 @@ export default function WebRTCRoom({ roomName, userName, isAudioOnly, onLeave }:
             }
           }}
           onMessageCountChange={setMessageCount}
+          onActivity={handleChatActivity}
+        />
+      )}
+
+      {reportOpen && (
+        <MeetingReportModal
+          live={liveReport}
+          past={loadReports()}
+          onClose={() => setReportOpen(false)}
         />
       )}
     </div>

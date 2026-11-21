@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import InstallPrompt from './InstallPrompt'
+import { trackEvent } from '../lib/telemetry'
 
 interface MeetingSetupProps {
   onJoin: (roomName: string, userName: string, audioOnly: boolean) => void
@@ -17,6 +18,7 @@ export default function MeetingSetup({ onJoin, initialRoomName = '' }: MeetingSe
     const timestamp = Date.now().toString(36)
     const randomId = Math.random().toString(36).substring(2, 9)
     setRoomName(`${randomId}${timestamp}`)
+    trackEvent('room_generated')
   }
 
   const handleSubmit = (e: React.FormEvent) => {

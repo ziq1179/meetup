@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { captureError, trackEvent } from '../lib/telemetry'
 
 interface ChatMessage {
   message: string
@@ -17,9 +18,10 @@ interface ChatProps {
   isOpen: boolean
   onToggle: () => void
   onMessageCountChange?: (count: number) => void
+  onActivity?: (name: string) => void
 }
 
-export default function Chat({ socket, roomId, userName, userId, isOpen, onToggle, onMessageCountChange }: ChatProps) {
+export default function Chat({ socket, roomId, userName, userId, isOpen, onToggle, onMessageCountChange, onActivity }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputMessage, setInputMessage] = useState('')
   const [isConnected, setIsConnected] = useState(false)
@@ -31,7 +33,6 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
 
   useEffect(() => {
     if (!socket) {
-      console.warn('Chat: Socket not available')
       setIsConnected(false)
       return
     }
@@ -39,10 +40,8 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
     setIsConnected(socket.connected)
 
     const handleConnect = () => {
-      console.log('Chat: Socket connected, socket ID:', socket.id)
       setIsConnected(true)
-      
-      // Test: Send a system message when connected
+
       if (messages.length === 0) {
         setMessages([{
           message: 'Chat connected',
@@ -56,16 +55,15 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
     }
 
     const handleDisconnect = () => {
-      console.log('Chat: Socket disconnected')
       setIsConnected(false)
     }
 
     const handleChatMessage = (data: ChatMessage) => {
-      console.log('Chat: Received chat message:', data)
-      console.log('Chat: Current socket ID:', socket.id)
-      console.log('Chat: Message socket ID:', data.socketId)
-      console.log('Chat: Is own message?', data.socketId === socket.id)
-      
+      // Own messages are recorded when sent; count others once here
+      if (data.socketId !== socket.id && data.userName !== 'System') {
+        onActivity?.(data.userName || 'Someone')
+      }
+
       // Check if we already have this message (avoid duplicates from optimistic update)
       setMessages(prev => {
         // Check if message already exists (by timestamp and socketId)
@@ -76,7 +74,6 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
         )
         
         if (exists) {
-          console.log('Chat: Message already exists, skipping duplicate')
           return prev
         }
         
@@ -97,14 +94,13 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
     socket.on('connect', handleConnect)
     socket.on('disconnect', handleDisconnect)
     socket.on('chat-message', handleChatMessage)
-    console.log('Chat: Listening for chat-message events, connected:', socket.connected)
 
     return () => {
       socket.off('connect', handleConnect)
       socket.off('disconnect', handleDisconnect)
       socket.off('chat-message', handleChatMessage)
     }
-  }, [socket])
+  }, [socket, onActivity])
 
   useEffect(() => {
     // Only scroll chat messages area, not the main page
@@ -125,19 +121,12 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
     e.preventDefault()
     const messageText = inputMessage.trim()
     
-    if (!messageText || !socket) {
-      console.warn('Cannot send message: socket not available or message empty')
-      return
-    }
+    if (!messageText || !socket) return
 
-    if (!socket.connected) {
-      console.error('Socket not connected, cannot send message')
-      return
-    }
+    if (!socket.connected) return
 
     // Ensure we're in the room before sending
     if (!socket.rooms || !socket.rooms.has(roomId)) {
-      console.warn('Socket not in room, joining now...')
       socket.emit('join-room', {
         roomId,
         userId,
@@ -166,14 +155,6 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
       timestamp: Date.now()
     }
 
-    console.log('Sending chat message:', messageData)
-    console.log('Socket state:', {
-      connected: socket.connected,
-      id: socket.id,
-      disconnected: socket.disconnected,
-      rooms: socket.rooms ? Array.from(socket.rooms) : 'unknown'
-    })
-    
     // Add optimistic UI update - show message immediately
     const tempMessage: ChatMessage = {
       ...messageData,
@@ -188,22 +169,18 @@ export default function Chat({ socket, roomId, userName, userId, isOpen, onToggl
     // Clear input after sending
     setInputMessage('')
     
-    console.log('Chat: Emitting chat-message event with data:', messageData)
-    console.log('Chat: Socket connected?', socket.connected)
-    console.log('Chat: Socket ID:', socket.id)
-    console.log('Chat: Room ID:', roomId)
-    
+    onActivity?.(userName)
+    trackEvent('chat_sent')
+
     socket.emit('chat-message', messageData, (response: any) => {
       if (response && response.error) {
-        console.error('Chat message error:', response.error)
+        captureError(new Error('chat send failed'), 'chat-send')
         // Remove optimistic message on error
         setMessages(prev => prev.filter(msg => 
           !(msg.socketId === tempMessage.socketId && 
             msg.timestamp === tempMessage.timestamp &&
             msg.message === tempMessage.message)
         ))
-      } else {
-        console.log('Chat message sent successfully, response:', response)
       }
     })
   }

@@ -179,23 +179,14 @@ io.on('connection', (socket) => {
 
   // Handle chat messages
   socket.on('chat-message', ({ roomId, message, userName, userId, timestamp }, callback) => {
-    console.log(`Chat message from ${userName} (${socket.id}) in room ${roomId}: ${message}`);
-    console.log(`Socket rooms:`, Array.from(socket.rooms));
-    
+    // Log metadata only - chat content is private and never written to logs
+    console.log(`Chat message sent in room ${roomId}`);
+
     // Ensure socket is in the room
     if (!socket.rooms.has(roomId)) {
       socket.join(roomId);
-      console.log(`Socket ${socket.id} joined room ${roomId} for chat`);
     }
-    
-    // Get all sockets in the room for debugging
-    const room = io.sockets.adapter.rooms.get(roomId);
-    if (room) {
-      console.log(`Room ${roomId} has ${room.size} sockets:`, Array.from(room));
-    } else {
-      console.warn(`Room ${roomId} not found!`);
-    }
-    
+
     // Broadcast to all users in the room (including sender)
     const messageData = {
       message,
@@ -204,8 +195,7 @@ io.on('connection', (socket) => {
       socketId: socket.id,
       timestamp: timestamp || Date.now()
     };
-    
-    console.log(`Broadcasting chat message to room ${roomId}:`, messageData);
+
     io.to(roomId).emit('chat-message', messageData);
     
     // Send acknowledgment

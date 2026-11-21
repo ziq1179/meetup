@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { trackEvent } from '../lib/telemetry'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -84,6 +85,8 @@ export default function InstallPrompt() {
       const choice = await deferredPrompt.userChoice
       if (choice.outcome === 'dismissed') {
         localStorage.setItem(DISMISS_KEY, String(Date.now()))
+      } else {
+        trackEvent('install_accepted')
       }
     } catch (err) {
       console.warn('Install prompt failed:', err)

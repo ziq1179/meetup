@@ -6,6 +6,7 @@
  */
 
 import { getWebRTCConfig } from '../config/webrtc'
+import { captureError } from './telemetry'
 
 export interface PeerConnection {
   peerConnection: RTCPeerConnection;
@@ -104,6 +105,7 @@ export class WebRTCManager {
       });
       return this.localStream;
     } catch (error: any) {
+      captureError(error, 'media-access')
       console.error('Error accessing media devices:', error);
       
       // Provide helpful error messages
@@ -273,6 +275,7 @@ export class WebRTCManager {
 
       return screenStream;
     } catch (error) {
+      captureError(error, 'screen-share-media')
       console.error('Error starting screen share:', error);
       throw error;
     }
